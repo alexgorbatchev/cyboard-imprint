@@ -37,8 +37,12 @@ type Info struct {
 type Display = analyzer.Display
 
 // FormatBCDVersion renders a USB bcdDevice value as major.minor.revision, the encoding
-// QMK uses for usb.device_version (e.g. "0.2.2" is stored as 0x0022).
+// QMK uses for usb.device_version (e.g. "0.2.2" is stored as 0x0022). Zero means the
+// device or recording carried no version and renders as "unknown".
 func FormatBCDVersion(bcd uint32) string {
+	if bcd == 0 {
+		return "unknown"
+	}
 	major := (bcd>>12&0xF)*10 + (bcd >> 8 & 0xF)
 	return fmt.Sprintf("%d.%d.%d", major, bcd>>4&0xF, bcd&0xF)
 }

@@ -34,7 +34,7 @@ func TestFormatBCDVersion(t *testing.T) {
 		{bcd: 0x0021, want: "0.2.1"},
 		{bcd: 0x0100, want: "1.0.0"},
 		{bcd: 0x1234, want: "12.3.4"},
-		{bcd: 0, want: "0.0.0"},
+		{bcd: 0, want: "unknown"},
 	}
 	for _, tt := range tests {
 		if got := FormatBCDVersion(tt.bcd); got != tt.want {
