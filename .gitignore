@@ -17,8 +17,8 @@ bin/
 dist/
 build/
 coverage.out
-firmware/
-vial-qmk/
+/firmware/
+/vial-qmk/
 trackball.ndjson
 *.ndjson
 
