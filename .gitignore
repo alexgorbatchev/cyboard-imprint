@@ -1,0 +1,28 @@
+# Binaries
+bin/
+/mouse-issues
+/mouse-issues
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Directories and temporary files
+.tmp/
+.codegraph/
+.codegraph
+.cache/
+.pi-subagents/
+dist/
+build/
+coverage.out
+firmware/
+vial-qmk/
+trackball.ndjson
+*.ndjson
+
+# OS / Editor files
+.DS_Store
+*.swp
+*.swo
