@@ -58,12 +58,13 @@ All firmware fixes live in [`alexgorbatchev/vial-qmk`](https://github.com/alexgo
 4. **Drag-scroll buffers** — `pointing_device_task_charybdis`: left and right trackballs have separate scroll accumulators (they only interfered when both halves drag-scrolled at once).
 5. **Legacy cleanup** — the stale single-hand `g_charybdis_config` and the `CHARYBDIS_CONFIG_SYNC` path are removed; `charybdis_get_pointer_default_dpi(bool is_left)` and `charybdis_get_pointer_sniping_dpi(bool is_left)` read the live per-side config. The no-sync `housekeeping_task_kb` no longer calls `housekeeping_task_user` itself (`quantum/keyboard.c` already does).
 6. **Vial keycode names** — the 5key bottom row `vial.json` files carry `customKeycodes`, so Vial shows `L_DPI_INC`/`L_DPI_DEC`/... instead of `User 0`–`User 15`.
-7. **USB identity** — product name `Imprint (Patched)` (`keyboards/cyboard/imprint/info.json`) and `device_version` `0.2.2` (`keyboards/cyboard/info.json`); bump the version whenever a new build is flashed so captures stay attributable.
+7. **USB identity** — product name `Imprint (Patched)` (`keyboards/cyboard/imprint/info.json`) and `device_version` `0.2.3` (`keyboards/cyboard/info.json`); bump the version whenever a new build is flashed so captures stay attributable.
+8. **Report clamp** — `tmk_core/protocol/report.h`: `MOUSE_REPORT_XY_MIN` is `INT8_MIN + 1` / `INT16_MIN + 1` (backported from upstream QMK), matching the descriptor logical minimum of -127 / -32767 instead of emitting out-of-range -128 / -32768.
 
 First-boot defaults (`eeconfig_init_kb`: left points, right drag-scrolls) only apply to an empty EEPROM.
 
 ## Prebuilt Binary Location
-- Active binary matching the user's hardware (built locally from `cyboard` at `a67fdcec`, `DEVICE_VER 0x0022`):
+- Active binary matching the user's hardware (built locally from `cyboard` at `bc24ec20`, `DEVICE_VER 0x0023`):
   `firmware/bin/cyboard-imprint-uf2/cyboard_imprint_imprint_number_row_5key_bottom_row_vial.uf2`
 
 ## Gotchas

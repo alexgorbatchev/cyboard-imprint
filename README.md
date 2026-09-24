@@ -177,7 +177,9 @@ The `./firmware` directory contains our fork of Cyboard's Vial-QMK firmware ([`a
 6. **Names the Trackball Keycodes in Vial**:
    - The 5-key bottom row layouts show the trackball keys as `L_DPI_INC`, `L_DPI_DEC`, `L_DragScroll_TOG`, and so on, instead of `User 0`–`User 15`.
 7. **Identifies Itself Over USB**:
-   - The keyboard reports the product name **`Imprint (Patched)`** and firmware version `0.2.2`, which `mouse-issues device list` shows.
+   - The keyboard reports the product name **`Imprint (Patched)`** and firmware version `0.2.3`, which `mouse-issues device list` shows.
+8. **Keeps Motion Within the Report Descriptor**:
+   - Fast negative motion is clamped to `-127`, the minimum the mouse report descriptor declares, instead of `-128` (backported from upstream QMK).
 
 First-boot defaults (left trackball points, right trackball drag-scrolls) apply only when the EEPROM is empty; flashing keeps the drag-scroll settings already saved on the keyboard.
 
@@ -186,7 +188,7 @@ First-boot defaults (left trackball points, right trackball drag-scrolls) apply 
 Your matching `.uf2` binary is located at:
 `./firmware/bin/cyboard-imprint-uf2/cyboard_imprint_imprint_number_row_5key_bottom_row_vial.uf2`
 
-*(Compiled for: `number_row` + `5key_bottom_row`, firmware version `0.2.2`.)*
+*(Compiled for: `number_row` + `5key_bottom_row`, firmware version `0.2.3`.)*
 
 ### Step-by-Step Flashing Guide
 
@@ -205,7 +207,7 @@ Your matching `.uf2` binary is located at:
    - Drag and drop the exact same `.uf2` file into the `RPI-RP2` drive.
    - Reconnect the two halves using your interconnect cable.
 4. **Verify the Running Firmware**:
-   - Run `mouse-issues device list` and confirm the trackball shows as `Imprint (Patched)` with `Version      : 0.2.2`.
+   - Run `mouse-issues device list` and confirm the trackball shows as `Imprint (Patched)` with `Version      : 0.2.3`.
 5. **Tune Sensitivity**:
    - Press `L_DPI_DEC` (shown as `User 1` in Vial on unpatched firmware) to step the left trackball down by 100 DPI, or `L_DPI_INC` (`User 0`) to step it up.
    - From 400 DPI, three presses of `L_DPI_DEC` reach the 100 DPI floor.
