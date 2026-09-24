@@ -125,7 +125,7 @@ func (a *Analyzer) processHID(curr Event) (Event, []Anomaly) {
 		curr.IntervalMs = intervalMs(prev, curr)
 	}
 
-	if an := a.checkIntegerOverflow(curr); an != nil {
+	if an := a.checkBoundary(curr); an != nil {
 		anomalies = append(anomalies, *an)
 	}
 	if an := a.checkJump(curr); an != nil {
@@ -178,37 +178,50 @@ func checkBurstRate(curr Event) *Anomaly {
 	}
 }
 
-func (a *Analyzer) checkIntegerOverflow(curr Event) *Anomaly {
-	var matched string
+// checkBoundary separates two different boundary signatures. Overflow values cannot come
+// from a correctly typed signed report. Saturation values are the limits QMK clamps motion to
+// (MOUSE_REPORT_XY_MIN/MAX: int8 by default, int16 with MOUSE_EXTENDED_REPORT); they mean the
+// sensor produced more counts in one report interval than the report can carry.
+func (a *Analyzer) checkBoundary(curr Event) *Anomaly {
 	dx, dy := curr.DeltaX, curr.DeltaY
+	either := func(v int64) bool { return dx == v || dy == v }
 
+	var overflow, saturation string
 	switch {
-	case dx == 255 || dy == 255:
-		matched = "255 (0xFF: 8-bit unsigned cast of -1)"
-	case dx == -128 || dy == -128:
-		matched = "-128 (0x80: 8-bit min signed boundary / SPI error)"
-	case dx == 127 || dy == 127:
-		matched = "127 (0x7F: 8-bit max signed saturation)"
-	case dx == 256 || dy == 256 || dx == -256 || dy == -256:
-		matched = "256 (9-bit byte alignment / shifting slip)"
-	case dx == 65535 || dy == 65535:
-		matched = "65535 (0xFFFF: 16-bit unsigned cast of -1)"
-	case dx == -32768 || dy == -32768:
-		matched = "-32768 (0x8000: 16-bit min signed boundary)"
-	case dx == 32767 || dy == 32767:
-		matched = "32767 (0x7FFF: 16-bit max signed boundary)"
+	case either(255):
+		overflow = "255 (0xFF: 8-bit unsigned cast of -1)"
+	case either(65535):
+		overflow = "65535 (0xFFFF: 16-bit unsigned cast of -1)"
+	case either(256) || either(-256):
+		overflow = "256 (9-bit byte alignment / shifting slip)"
+	case either(127):
+		saturation = "127 (8-bit report maximum)"
+	case either(-128):
+		saturation = "-128 (8-bit report minimum)"
+	case either(32767):
+		saturation = "32767 (16-bit report maximum)"
+	case either(-32768):
+		saturation = "-32768 (16-bit report minimum)"
 	}
 
-	if matched != "" {
+	switch {
+	case overflow != "":
 		return &Anomaly{
 			Kind:        AnomalyIntegerOverflow,
 			Severity:    "high",
 			Title:       "Firmware Integer Overflow Signature",
-			Description: fmt.Sprintf("Delta (%d, %d) matches known integer boundary: %s", dx, dy, matched),
+			Description: fmt.Sprintf("Delta (%d, %d) matches known integer boundary: %s", dx, dy, overflow),
 			Event:       curr,
-			Details: map[string]string{
-				"signature": matched,
-			},
+			Details:     map[string]string{"signature": overflow},
+		}
+	case saturation != "":
+		return &Anomaly{
+			Kind:        AnomalySaturation,
+			Severity:    "high",
+			Title:       "HID Report Saturation",
+			Description: fmt.Sprintf("Delta (%d, %d) hit the report limit: %s", dx, dy, saturation),
+			Event:       curr,
+			Details:     map[string]string{"signature": saturation},
 		}
 	}
 	return nil
@@ -367,42 +380,52 @@ func calculateStats(vals []int64) DeltaStats {
 
 func (a *Analyzer) generateDiagnoses() []string {
 	var diagnoses []string
+	count := func(kind AnomalyKind) int { return a.anomalyBreakdown[kind] }
 
-	overflowCount := a.anomalyBreakdown[AnomalyIntegerOverflow]
-	jumpCount := a.anomalyBreakdown[AnomalyJump]
-	crossCount := a.anomalyBreakdown[AnomalyDisplayCross]
-	burstCount := a.anomalyBreakdown[AnomalyBurstRate]
-
-	if overflowCount > 0 {
+	if n := count(AnomalySaturation); n > 0 {
 		diagnoses = append(diagnoses, fmt.Sprintf(
-			"Firmware Integer Overflow Detected (%d occurrences): Delta boundary values (e.g. 255, -128, 65535) indicate a sign-extension or signed/unsigned type cast defect in firmware. In QMK/Vial pointing device drivers, ensure motion variables are signed int8_t or int16_t, and that report descriptor min/max bounds match the coordinate type.",
-			overflowCount,
+			"Report Saturation (%d occurrences): HID deltas hit the report limit, so the firmware clamped motion that did not fit in one report. The sensor is producing more counts per report interval than gentle trackball movement should; check the active DPI step first.",
+			n,
 		))
 	}
 
-	if jumpCount > 0 && overflowCount == 0 {
+	if n := count(AnomalyIntegerOverflow); n > 0 {
 		diagnoses = append(diagnoses, fmt.Sprintf(
-			"Sudden Motion Delta Spikes Detected (%d occurrences): Raw deltas jump abruptly during gentle motion without integer boundary patterns. Suspect SPI communication noise or timing delay (tSRAD / CS delay) between the microcontroller and the optical sensor (e.g. PMW3360), or physical debris/hair in the sensor well.",
-			jumpCount,
+			"Firmware Integer Overflow Detected (%d occurrences): Delta values such as 255, 65535, or 256 cannot come from a correctly typed signed report. Check the report descriptor logical min/max and signed/unsigned casts of motion values in the firmware.",
+			n,
 		))
 	}
 
-	if crossCount > 0 {
+	if n := count(AnomalyJump); n > 0 {
 		diagnoses = append(diagnoses, fmt.Sprintf(
-			"Multi-Monitor Boundary Teleportation (%d occurrences): Cursor leaper across physical display boundaries within a single motion frame.",
-			crossCount,
+			"Large Raw Deltas (%d occurrences of |delta| >= %d counts): Sustained large deltas during gentle movement point at a DPI that is too high. Isolated spikes between small deltas (see direction flips) point at sensor misreads instead.",
+			n, a.config.JumpThreshold,
 		))
 	}
 
-	if burstCount > 0 {
+	if n := count(AnomalySignFlip); n > 0 {
 		diagnoses = append(diagnoses, fmt.Sprintf(
-			"High-Frequency Sensor Burst Glitches (%d occurrences): Sensor reports fired under 0.4ms intervals, suggesting burst-mode buffer dumps or unthrottled loop execution.",
-			burstCount,
+			"Direction Flips (%d occurrences): A large delta opposite to the preceding gentle motion. This is characteristic of sensor misreads (dirty lens, lift-off, SPI read errors) rather than DPI.",
+			n,
+		))
+	}
+
+	if leaps, crossings := count(AnomalyCursorLeap), count(AnomalyDisplayCross); leaps+crossings > 0 {
+		diagnoses = append(diagnoses, fmt.Sprintf(
+			"Cursor Teleports (%d occurrences, %d across displays): The cursor moved further than the event delta explains. The jump happened after the input device, in WindowServer or software that warps the cursor.",
+			leaps+crossings, crossings,
+		))
+	}
+
+	if n := count(AnomalyBurstRate); n > 0 {
+		diagnoses = append(diagnoses, fmt.Sprintf(
+			"High-Frequency Report Bursts (%d occurrences): HID reports with large deltas arrived less than %.1f ms apart, faster than USB polling should deliver them. Suspect buffered reports being released in a burst.",
+			n, burstIntervalMs,
 		))
 	}
 
 	if len(diagnoses) == 0 {
-		diagnoses = append(diagnoses, "Clean Movement Profile: No integer overflow signatures, sign flips, or abnormal leaps were detected during this capture window.")
+		diagnoses = append(diagnoses, "Clean Movement Profile: No boundary signatures, large deltas, direction flips, bursts, or cursor teleports were detected during this capture window.")
 	}
 
 	return diagnoses

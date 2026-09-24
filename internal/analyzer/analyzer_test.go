@@ -1,6 +1,7 @@
 package analyzer
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -73,55 +74,21 @@ func TestDetectAnomalies_JumpAnomaly(t *testing.T) {
 	}
 }
 
-func TestDetectAnomalies_IntegerOverflowSignatures(t *testing.T) {
+func TestDetectAnomalies_BoundarySignatures(t *testing.T) {
 	tests := []struct {
-		name         string
-		deltaX       int64
-		deltaY       int64
-		wantOverflow bool
-		wantDetails  string
+		name     string
+		deltaX   int64
+		deltaY   int64
+		wantKind AnomalyKind // empty means neither overflow nor saturation
 	}{
-		{
-			name:         "8-bit unsigned 255 (should be -1)",
-			deltaX:       255,
-			deltaY:       0,
-			wantOverflow: true,
-			wantDetails:  "8-bit",
-		},
-		{
-			name:         "8-bit max negative -128 (0x80)",
-			deltaX:       0,
-			deltaY:       -128,
-			wantOverflow: true,
-			wantDetails:  "8-bit",
-		},
-		{
-			name:         "8-bit max positive 127 (0x7F)",
-			deltaX:       127,
-			deltaY:       0,
-			wantOverflow: true,
-			wantDetails:  "8-bit",
-		},
-		{
-			name:         "16-bit unsigned 65535",
-			deltaX:       65535,
-			deltaY:       0,
-			wantOverflow: true,
-			wantDetails:  "16-bit",
-		},
-		{
-			name:         "16-bit max negative -32768",
-			deltaX:       0,
-			deltaY:       -32768,
-			wantOverflow: true,
-			wantDetails:  "16-bit",
-		},
-		{
-			name:         "ordinary delta 15",
-			deltaX:       15,
-			deltaY:       10,
-			wantOverflow: false,
-		},
+		{name: "8-bit unsigned 255 (should be -1)", deltaX: 255, wantKind: AnomalyIntegerOverflow},
+		{name: "16-bit unsigned 65535", deltaX: 65535, wantKind: AnomalyIntegerOverflow},
+		{name: "9-bit slip 256", deltaY: -256, wantKind: AnomalyIntegerOverflow},
+		{name: "8-bit report max 127", deltaX: 127, wantKind: AnomalySaturation},
+		{name: "8-bit report min -128", deltaY: -128, wantKind: AnomalySaturation},
+		{name: "16-bit report max 32767", deltaX: 32767, wantKind: AnomalySaturation},
+		{name: "16-bit report min -32768", deltaY: -32768, wantKind: AnomalySaturation},
+		{name: "ordinary delta 15", deltaX: 15, deltaY: 10},
 	}
 
 	for _, tt := range tests {
@@ -136,17 +103,62 @@ func TestDetectAnomalies_IntegerOverflowSignatures(t *testing.T) {
 				Source:    SourceHID,
 			})
 
-			found := false
-			for _, an := range anomalies {
-				if an.Kind == AnomalyIntegerOverflow {
-					found = true
-					break
+			for _, kind := range []AnomalyKind{AnomalyIntegerOverflow, AnomalySaturation} {
+				if got, want := hasKind(anomalies, kind), kind == tt.wantKind; got != want {
+					t.Fatalf("delta (%d, %d): %s present = %v, want %v (anomalies: %+v)",
+						tt.deltaX, tt.deltaY, kind, got, want, anomalies)
 				}
 			}
+		})
+	}
+}
 
-			if found != tt.wantOverflow {
-				t.Fatalf("delta (%d, %d): got overflow=%v, want %v (anomalies: %+v)",
-					tt.deltaX, tt.deltaY, found, tt.wantOverflow, anomalies)
+func TestSessionSummary_Diagnoses(t *testing.T) {
+	t0 := time.Date(2026, 9, 24, 10, 0, 0, 0, time.UTC)
+	hid := func(ms int, dx int64) Event {
+		return Event{Timestamp: t0.Add(time.Duration(ms) * time.Millisecond), Source: SourceHID, DeviceName: "Imprint", DeltaX: dx}
+	}
+
+	tests := []struct {
+		name   string
+		events []Event
+		want   []string
+		reject []string
+	}{
+		{
+			name:   "saturated reports point at DPI",
+			events: []Event{hid(0, 3), hid(1, 90), hid(2, 127)},
+			want:   []string{"Report Saturation (1 occurrences)", "DPI", "Large Raw Deltas (2 occurrences"},
+			reject: []string{"Integer Overflow", "SPI"},
+		},
+		{
+			name:   "direction flip is diagnosed",
+			events: []Event{hid(0, 3), hid(1, -40)},
+			want:   []string{"Direction Flips (1 occurrences)"},
+		},
+		{
+			name:   "clean movement",
+			events: []Event{hid(0, 3), hid(1, 4)},
+			want:   []string{"Clean Movement Profile"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := New(Config{JumpThreshold: 50})
+			for _, e := range tt.events {
+				a.Process(e)
+			}
+			joined := strings.Join(a.Summary().Diagnoses, "\n")
+			for _, w := range tt.want {
+				if !strings.Contains(joined, w) {
+					t.Errorf("diagnoses missing %q:\n%s", w, joined)
+				}
+			}
+			for _, r := range tt.reject {
+				if strings.Contains(joined, r) {
+					t.Errorf("diagnoses must not contain %q:\n%s", r, joined)
+				}
 			}
 		})
 	}
@@ -286,7 +298,7 @@ func TestSessionSummary_StatsAndDiagnosis(t *testing.T) {
 		})
 	}
 
-	// Feed 2 overflow events
+	// Feed one overflow and one saturated event
 	a.Process(Event{
 		Timestamp: t0.Add(88 * time.Millisecond),
 		DeltaX:    255,
@@ -304,8 +316,8 @@ func TestSessionSummary_StatsAndDiagnosis(t *testing.T) {
 	if summary.TotalEvents != 12 {
 		t.Fatalf("expected 12 total events, got %d", summary.TotalEvents)
 	}
-	if summary.AnomalyBreakdown[AnomalyIntegerOverflow] != 2 {
-		t.Fatalf("expected 2 overflow anomalies, got %d", summary.AnomalyBreakdown[AnomalyIntegerOverflow])
+	if summary.AnomalyBreakdown[AnomalyIntegerOverflow] != 1 || summary.AnomalyBreakdown[AnomalySaturation] != 1 {
+		t.Fatalf("expected 1 overflow (255) and 1 saturation (-128) anomaly, got %+v", summary.AnomalyBreakdown)
 	}
 	if summary.AnomalyBreakdown[AnomalyJump] != 2 {
 		t.Fatalf("expected 2 jump anomalies, got %d", summary.AnomalyBreakdown[AnomalyJump])

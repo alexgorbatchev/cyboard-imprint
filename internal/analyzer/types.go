@@ -20,6 +20,7 @@ type AnomalyKind string
 const (
 	AnomalyJump            AnomalyKind = "jump"
 	AnomalyIntegerOverflow AnomalyKind = "integer_overflow"
+	AnomalySaturation      AnomalyKind = "report_saturation"
 	AnomalySignFlip        AnomalyKind = "sign_flip"
 	AnomalyDisplayCross    AnomalyKind = "display_cross"
 	AnomalyCursorLeap      AnomalyKind = "cursor_leap"
