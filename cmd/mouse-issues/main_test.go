@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/alexgorbatchev/mouse-issues/internal/analyzer"
+	"github.com/alexgorbatchev/mouse-issues/internal/firmware/firmwaretest"
 	"github.com/alexgorbatchev/mouse-issues/internal/recorder"
 )
 
@@ -280,6 +281,32 @@ func TestCursorSpikesCommand(t *testing.T) {
 	}
 	if !strings.Contains(agentOut, "total_spikes: 2") {
 		t.Errorf("expected 'total_spikes: 2' in agent output, got: %s", agentOut)
+	}
+}
+
+func TestFirmwareInspectCommand_USBIdentity(t *testing.T) {
+	path := firmwaretest.WriteUF2(t, firmwaretest.ImprintImage(), -1)
+
+	t.Setenv("AGENT", "0")
+	out, err := executeCommand("firmware", "inspect", path)
+	if err != nil {
+		t.Fatalf("firmware inspect failed: %v", err)
+	}
+	for _, want := range []string{"USB Device          : 0x4359:0x0000, version 0.2.3", "USB Strings         : Cyboard | Imprint (Patched) | vial:f64c2b3c"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected %q in human output, got: %s", want, out)
+		}
+	}
+
+	t.Setenv("AGENT", "1")
+	agentOut, err := executeCommand("firmware", "inspect", path)
+	if err != nil {
+		t.Fatalf("firmware inspect (agent) failed: %v", err)
+	}
+	for _, want := range []string{"usb_vid: 0x4359\n", "usb_pid: 0x0000\n", "usb_version: 0.2.3\n", "usb_string: Imprint (Patched)\n"} {
+		if !strings.Contains(agentOut, want) {
+			t.Errorf("expected %q in agent output, got: %s", want, agentOut)
+		}
 	}
 }
 

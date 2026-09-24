@@ -64,7 +64,7 @@ var techCatalog = cobrahelptree.TechCatalog{
 	},
 	"mouse-issues firmware inspect": {
 		Summary:     "Inspect a UF2 binary header and validate target architecture",
-		Description: "Parses the 32-byte UF2 block header, verifies magic bytes, target architecture (e.g. RP2040), and payload dimensions.",
+		Description: "Validates every UF2 block, the target architecture (e.g. RP2040), and payload dimensions, and reports the USB vendor/product ID, firmware version, and USB strings compiled into the image.",
 		Args:        "<file>",
 	},
 }
