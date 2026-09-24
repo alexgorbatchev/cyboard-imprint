@@ -1,6 +1,6 @@
 ---
 created_on: 2026-09-23 13:04
-last_modified: 2026-09-24 11:45
+last_modified: 2026-09-24 11:25
 status: current
 ---
 
@@ -22,8 +22,9 @@ Diagnostic tool for mouse and trackball cursor teleportation, delta jumps, and m
 - Timeline Analysis: `just timeline trackball.ndjson 30`
 - Directional Spikes: `just spikes trackball.ndjson 30`
 - Inspect UF2 Header: `just inspect-uf2` (defaults to the prebuilt binary)
-- Flash Firmware: `just flash [file] [variant] [product] [timeout]` -> refuses a UF2 whose file name is not for `variant` (default `imprint_number_row_5key_bottom_row`) or whose embedded USB identity (read by `mouse-issues firmware inspect`) is not `product` (default `Imprint (Patched)`) on 0x4359:0x0000; then waits for `/Volumes/RPI-RP2`, copies, and fails unless the reconnected keyboard reports the product name and version embedded in the UF2
-- Build firmware (run in `firmware/`, after `git submodule update --init --recursive --depth 1 lib/chibios lib/chibios-contrib lib/pico-sdk lib/printf lib/lvgl`): `docker run --rm -v "$PWD":/qmk_firmware -w /qmk_firmware ghcr.io/qmk/qmk_cli@sha256:2dc05fc9f32efebd6b05c2b8676ee548358bc7e151e9dbf4dac6b6eed4513b07 bash -c 'git config --global --add safe.directory /qmk_firmware && make cyboard/imprint/imprint_number_row_5key_bottom_row:vial'` (same image as the fork's CI; writes the `.uf2` to `firmware/`)
+- Build Firmware: `just firmware-build [variant]` -> refuses uncommitted changes in `firmware/` (outside `bin/`), builds in the fork's CI container (output in `.tmp/firmware-build.log`), copies the UF2 to `firmware/bin/cyboard-imprint-uf2/`, and writes `<uf2>.json` with the firmware commit, version, SHA-256, and build time
+- Flash Firmware: `just flash <left|right> [file] [variant] [product] [timeout]` -> refuses a UF2 whose file name is not for `variant`, whose embedded USB identity is not `product` (default `Imprint (Patched)`) on 0x4359:0x0000, or whose SHA-256 does not match its `.json` provenance; waits for `/Volumes/RPI-RP2`, copies, verifies the reconnected keyboard reports the UF2's product and version, and appends the attempt to `docs/internal/flash-log.md`
+- Manual firmware build (run in `firmware/`, after `git submodule update --init --recursive --depth 1 lib/chibios lib/chibios-contrib lib/pico-sdk lib/printf lib/lvgl`): `docker run --rm -v "$PWD":/qmk_firmware -w /qmk_firmware ghcr.io/qmk/qmk_cli@sha256:2dc05fc9f32efebd6b05c2b8676ee548358bc7e151e9dbf4dac6b6eed4513b07 bash -c 'git config --global --add safe.directory /qmk_firmware && make cyboard/imprint/imprint_number_row_5key_bottom_row:vial'` (shows compiler output; produces no provenance, so `just flash` refuses its UF2)
 
 ## Setup
 - macOS 12.0+ with Accessibility permission enabled for the terminal (required for CoreGraphics event taps during live capture).
@@ -65,7 +66,7 @@ All firmware fixes live in [`alexgorbatchev/vial-qmk`](https://github.com/alexgo
 First-boot defaults (`eeconfig_init_kb`: left points, right drag-scrolls) only apply to an empty EEPROM.
 
 ## Prebuilt Binary Location
-- Active binary matching the user's hardware (built locally from `cyboard` at `eb262a52`, `DEVICE_VER 0x0023`):
+- Active binary matching the user's hardware (built by `just firmware-build` from `cyboard` at `120ad68d`, `DEVICE_VER 0x0023`; provenance in the `.json` next to it):
   `firmware/bin/cyboard-imprint-uf2/cyboard_imprint_imprint_number_row_5key_bottom_row_vial.uf2`
 
 ## Gotchas
@@ -84,6 +85,7 @@ First-boot defaults (`eeconfig_init_kb`: left points, right drag-scrolls) only a
 - Always: automatically record all new instructions in the most appropriate `AGENTS.md` file immediately upon receipt (check with user if existing instructions conflict)
 - Always: any time code is changed such that results from running that code are changed, a test file must be changed as well; 90% code coverage is required (scripts/ folder is excluded from this rule)
 - Always: run `just check` before committing code
+- Always: flash with `just flash <left|right>` so every flash lands in `docs/internal/flash-log.md`; bump `usb.device_version` before building a UF2 that differs from one already flashed
 - Ask first: adding new external dependencies, modifying CI workflows in `.github/workflows/`, or making breaking CLI changes
 - Never: publish releases, tags, packages, or production deployments automatically without explicit user authorization
 - Never: commit compiled binaries (`bin/`), recorded NDJSON captures (`*.ndjson`), or temporary files (`.tmp/`) to git
