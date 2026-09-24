@@ -97,7 +97,8 @@ flash file="firmware/bin/cyboard-imprint-uf2/cyboard_imprint_imprint_number_row_
     ./bin/mouse-issues firmware inspect "$file" >/dev/null
 
     if [[ ! -d "$volume" ]]; then
-        echo "[INFO] Waiting for $volume: double-tap the reset button on the half connected over USB."
+        echo "[INFO] Waiting for $volume: unplug USB, then hold the top-left key (right half: top-right key) while plugging it back in."
+        echo "       Firmware older than 0.2.3 needs a double-tap of the reset button instead."
         wait_for {{timeout}} '[[ -d "$volume" ]]' || { echo "[ERROR] $volume did not appear within {{timeout}}s" >&2; exit 1; }
     fi
     [[ -f "$volume/INFO_UF2.TXT" ]] || { echo "[ERROR] $volume is not an RP2040 bootloader drive (no INFO_UF2.TXT)" >&2; exit 1; }
