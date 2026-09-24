@@ -49,20 +49,23 @@ type Display struct {
 
 // Event is a normalized pointing device movement event.
 type Event struct {
-	ID          uint64    `json:"id"`
-	Timestamp   time.Time `json:"timestamp"`
-	Source      Source    `json:"source"`
-	DeviceName  string    `json:"device_name,omitempty"`
-	DeviceVID   uint32    `json:"device_vid,omitempty"`
-	DevicePID   uint32    `json:"device_pid,omitempty"`
-	CursorX     float64   `json:"cursor_x,omitempty"`
-	CursorY     float64   `json:"cursor_y,omitempty"`
-	DeltaX      int64     `json:"delta_x"`
-	DeltaY      int64     `json:"delta_y"`
-	SubframeX   float64   `json:"subframe_x,omitempty"`
-	SubframeY   float64   `json:"subframe_y,omitempty"`
-	IntervalMs  float64   `json:"interval_ms,omitempty"`
-	RawReportID uint32    `json:"raw_report_id,omitempty"`
+	ID            uint64    `json:"id"`
+	Timestamp     time.Time `json:"timestamp"`
+	Source        Source    `json:"source"`
+	DeviceName    string    `json:"device_name,omitempty"`
+	DeviceVID     uint32    `json:"device_vid,omitempty"`
+	DevicePID     uint32    `json:"device_pid,omitempty"`
+	DeviceVersion uint32    `json:"device_version,omitempty"` // USB bcdDevice
+	CursorX       float64   `json:"cursor_x,omitempty"`
+	CursorY       float64   `json:"cursor_y,omitempty"`
+	DeltaX        int64     `json:"delta_x"`
+	DeltaY        int64     `json:"delta_y"`
+	Wheel         int64     `json:"wheel,omitempty"` // HID vertical scroll
+	Pan           int64     `json:"pan,omitempty"`   // HID horizontal scroll (AC Pan)
+	SubframeX     float64   `json:"subframe_x,omitempty"`
+	SubframeY     float64   `json:"subframe_y,omitempty"`
+	IntervalMs    float64   `json:"interval_ms,omitempty"`
+	RawReportID   uint32    `json:"raw_report_id,omitempty"`
 }
 
 // Anomaly describes an irregular motion or firmware glitch.

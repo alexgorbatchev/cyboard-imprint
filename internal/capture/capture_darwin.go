@@ -7,11 +7,45 @@ package capture
 #include <CoreFoundation/CoreFoundation.h>
 #include <IOKit/hid/IOHIDManager.h>
 #include <ApplicationServices/ApplicationServices.h>
+#include <mach/mach_time.h>
 #include <stdlib.h>
 #include <string.h>
 
 extern void goCGEventCallback(double x, double y, int64_t dx, int64_t dy, uint64_t tsNano);
-extern void goHIDValueCallback(uintptr_t devHandle, char *devName, uint32_t vid, uint32_t pid, uint32_t page, uint32_t usage, int64_t val, uint64_t tsNano);
+extern void goHIDValueCallback(uintptr_t devHandle, char *devName, uint32_t vid, uint32_t pid, uint32_t version, uint32_t page, uint32_t usage, int64_t val, uint64_t tsNano);
+
+// IOHIDValueGetTimeStamp returns Mach absolute time ticks, which are only nanoseconds
+// when the timebase is 1/1 (Intel).
+static uint64_t machToNanos(uint64_t ticks) {
+    static mach_timebase_info_data_t timebase;
+    if (timebase.denom == 0) {
+        mach_timebase_info(&timebase);
+    }
+    return ticks * timebase.numer / timebase.denom;
+}
+
+static uint64_t nowNanos(void) {
+    return machToNanos(mach_absolute_time());
+}
+
+// CGEventGetTimestamp is documented as nanoseconds since startup (and returns that for
+// posted events on macOS 26), but has been reported to return Mach ticks on Apple Silicon.
+// The callback runs moments after the event, so the reading closer to the current uptime
+// is the right one; the other is off by the timebase ratio (~41x on Apple Silicon).
+static uint64_t cgTimestampToNanos(uint64_t ts) {
+    uint64_t now = nowNanos();
+    uint64_t fromTicks = machToNanos(ts);
+    uint64_t distNanos = now > ts ? now - ts : ts - now;
+    uint64_t distTicks = now > fromTicks ? now - fromTicks : fromTicks - now;
+    return distTicks < distNanos ? fromTicks : ts;
+}
+
+static uint32_t deviceNumberProperty(IOHIDDeviceRef dev, CFStringRef key) {
+    uint32_t out = 0;
+    CFNumberRef num = (CFNumberRef)IOHIDDeviceGetProperty(dev, key);
+    if (num) CFNumberGetValue(num, kCFNumberSInt32Type, &out);
+    return out;
+}
 
 static CGEventRef cEventTapCallback(CGEventTapProxy proxy, CGEventType type, CGEventRef event, void *refcon) {
     if (type == kCGEventMouseMoved || type == kCGEventLeftMouseDragged ||
@@ -19,8 +53,7 @@ static CGEventRef cEventTapCallback(CGEventTapProxy proxy, CGEventType type, CGE
         CGPoint pt = CGEventGetLocation(event);
         int64_t dx = CGEventGetIntegerValueField(event, kCGMouseEventDeltaX);
         int64_t dy = CGEventGetIntegerValueField(event, kCGMouseEventDeltaY);
-        uint64_t ts = CGEventGetTimestamp(event);
-        goCGEventCallback(pt.x, pt.y, dx, dy, ts);
+        goCGEventCallback(pt.x, pt.y, dx, dy, cgTimestampToNanos(CGEventGetTimestamp(event)));
     }
     return event;
 }
@@ -30,7 +63,8 @@ static void cHIDValueCallback(void *context, IOReturn result, void *sender, IOHI
     uint32_t page = IOHIDElementGetUsagePage(elem);
     uint32_t usage = IOHIDElementGetUsage(elem);
 
-    if (page == 1 && (usage == 0x30 || usage == 0x31 || usage == 0x38)) {
+    // X, Y, Wheel (Generic Desktop) and AC Pan (Consumer) carry pointer and scroll motion.
+    if ((page == 0x01 && (usage == 0x30 || usage == 0x31 || usage == 0x38)) || (page == 0x0C && usage == 0x238)) {
         IOHIDDeviceRef dev = (IOHIDDeviceRef)sender;
         CFStringRef prod = (CFStringRef)IOHIDDeviceGetProperty(dev, CFSTR(kIOHIDProductKey));
         char name[128] = "Unknown Device";
@@ -38,16 +72,14 @@ static void cHIDValueCallback(void *context, IOReturn result, void *sender, IOHI
             CFStringGetCString(prod, name, sizeof(name), kCFStringEncodingUTF8);
         }
 
-        uint32_t vid = 0, pid = 0;
-        CFNumberRef vidNum = (CFNumberRef)IOHIDDeviceGetProperty(dev, CFSTR(kIOHIDVendorIDKey));
-        CFNumberRef pidNum = (CFNumberRef)IOHIDDeviceGetProperty(dev, CFSTR(kIOHIDProductIDKey));
-        if (vidNum) CFNumberGetValue(vidNum, kCFNumberSInt32Type, &vid);
-        if (pidNum) CFNumberGetValue(pidNum, kCFNumberSInt32Type, &pid);
+        uint32_t vid = deviceNumberProperty(dev, CFSTR(kIOHIDVendorIDKey));
+        uint32_t pid = deviceNumberProperty(dev, CFSTR(kIOHIDProductIDKey));
+        uint32_t version = deviceNumberProperty(dev, CFSTR(kIOHIDVersionNumberKey));
 
         CFIndex intVal = IOHIDValueGetIntegerValue(value);
-        uint64_t ts = IOHIDValueGetTimeStamp(value);
+        uint64_t ts = machToNanos(IOHIDValueGetTimeStamp(value));
 
-        goHIDValueCallback((uintptr_t)dev, name, vid, pid, page, usage, (int64_t)intVal, ts);
+        goHIDValueCallback((uintptr_t)dev, name, vid, pid, version, page, usage, (int64_t)intVal, ts);
     }
 }
 
@@ -107,9 +139,9 @@ import "C"
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/alexgorbatchev/mouse-issues/internal/analyzer"
@@ -120,122 +152,76 @@ var (
 	sessionMutex  sync.Mutex
 )
 
+func currentSession() *darwinSession {
+	sessionMutex.Lock()
+	defer sessionMutex.Unlock()
+	return activeSession
+}
+
 //export goCGEventCallback
 func goCGEventCallback(x, y float64, dx, dy int64, tsNano uint64) {
-	sessionMutex.Lock()
-	s := activeSession
-	sessionMutex.Unlock()
-	if s == nil || s.handler == nil {
+	s := currentSession()
+	if s == nil || s.opts.Mode == ModeHID {
 		return
 	}
 
-	if s.opts.Mode == ModeHID {
-		return
-	}
-
-	id := atomic.AddUint64(&s.nextID, 1)
-	event := analyzer.Event{
-		ID:        id,
-		Timestamp: time.Now(),
+	s.nextID++
+	s.handler(analyzer.Event{
+		ID:        s.nextID,
+		Timestamp: s.clock.at(tsNano),
 		Source:    analyzer.SourceCG,
 		CursorX:   x,
 		CursorY:   y,
 		DeltaX:    dx,
 		DeltaY:    dy,
-	}
-	s.handler(event)
-}
-
-type double = float64
-
-type pendingDelta struct {
-	hasX      bool
-	hasY      bool
-	dx        int64
-	dy        int64
-	name      string
-	vid       uint32
-	pid       uint32
-	lastStamp time.Time
+	})
 }
 
 //export goHIDValueCallback
-func goHIDValueCallback(devHandle uintptr, devName *C.char, vid, pid, page, usage uint32, val int64, tsNano uint64) {
-	sessionMutex.Lock()
-	s := activeSession
-	sessionMutex.Unlock()
-	if s == nil || s.handler == nil {
+func goHIDValueCallback(devHandle uintptr, devName *C.char, vid, pid, version, page, usage uint32, val int64, tsNano uint64) {
+	s := currentSession()
+	if s == nil || s.opts.Mode == ModeCG {
 		return
 	}
 
-	if s.opts.Mode == ModeCG {
+	dev := hidDevice{handle: devHandle, name: C.GoString(devName), vid: vid, pid: pid, version: version}
+	if !s.matchesDevice(dev) {
 		return
 	}
 
-	name := C.GoString(devName)
-	if s.opts.DeviceFilter != "" {
-		filter := strings.ToLower(s.opts.DeviceFilter)
-		if !strings.Contains(strings.ToLower(name), filter) &&
-			!strings.Contains(fmt.Sprintf("%04x:%04x", vid, pid), filter) {
-			return
-		}
+	if completed, done := s.reports.add(dev, hidUsage(page<<16|usage), val, tsNano); done {
+		s.emitHID(completed)
 	}
-
-	s.hidStateLock.Lock()
-	state, exists := s.hidState[devHandle]
-	if !exists {
-		state = &pendingDelta{
-			name:      name,
-			vid:       vid,
-			pid:       pid,
-			lastStamp: time.Now(),
-		}
-		s.hidState[devHandle] = state
-	}
-
-	if usage == 0x30 {
-		state.dx = val
-		state.hasX = true
-	} else if usage == 0x31 {
-		state.dy = val
-		state.hasY = true
-	}
-
-	now := time.Now()
-	// Emit if we received both X and Y or interval has elapsed
-	shouldEmit := (state.hasX && state.hasY) || now.Sub(state.lastStamp) > 2*time.Millisecond
-	if shouldEmit {
-		id := atomic.AddUint64(&s.nextID, 1)
-		ev := analyzer.Event{
-			ID:         id,
-			Timestamp:  now,
-			Source:     analyzer.SourceHID,
-			DeviceName: state.name,
-			DeviceVID:  state.vid,
-			DevicePID:  state.pid,
-			DeltaX:     state.dx,
-			DeltaY:     state.dy,
-		}
-		state.hasX = false
-		state.hasY = false
-		state.dx = 0
-		state.dy = 0
-		state.lastStamp = now
-		s.hidStateLock.Unlock()
-
-		s.handler(ev)
-		return
-	}
-
-	s.hidStateLock.Unlock()
 }
 
+// darwinSession callbacks all run on the thread that owns the run loop, inside
+// CFRunLoopRunInMode called from Start, so its fields need no locking.
 type darwinSession struct {
-	opts         Options
-	handler      Handler
-	nextID       uint64
-	hidStateLock sync.Mutex
-	hidState     map[uintptr]*pendingDelta
+	opts    Options
+	handler Handler
+	nextID  uint64
+	clock   monoClock
+	reports reportAssembler
+}
+
+func (s *darwinSession) matchesDevice(dev hidDevice) bool {
+	if s.opts.DeviceFilter == "" {
+		return true
+	}
+	filter := strings.ToLower(s.opts.DeviceFilter)
+	return strings.Contains(strings.ToLower(dev.name), filter) ||
+		strings.Contains(fmt.Sprintf("%04x:%04x", dev.vid, dev.pid), filter)
+}
+
+func (s *darwinSession) emitHID(r hidReport) {
+	s.nextID++
+	s.handler(r.event(s.nextID, s.clock))
+}
+
+func (s *darwinSession) flushHID() {
+	for _, r := range s.reports.flush() {
+		s.emitHID(r)
+	}
 }
 
 // NewSession creates a Darwin native capture session.
@@ -243,14 +229,18 @@ func NewSession(opts Options) Session {
 	if opts.Mode == "" {
 		opts.Mode = ModeBoth
 	}
-	return &darwinSession{
-		opts:     opts,
-		hidState: make(map[uintptr]*pendingDelta),
-	}
+	return &darwinSession{opts: opts}
 }
 
 // Start runs the event loop on macOS until ctx is cancelled.
 func (s *darwinSession) Start(ctx context.Context, handler Handler) error {
+	// The run loop, its sources, and every callback belong to one OS thread; without this
+	// the goroutine could resume on another thread and run a run loop with no sources.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	s.clock = monoClock{wall: time.Now(), nanos: uint64(C.nowNanos())}
+
 	sessionMutex.Lock()
 	if activeSession != nil {
 		sessionMutex.Unlock()
@@ -301,13 +291,16 @@ func (s *darwinSession) Start(ctx context.Context, handler Handler) error {
 		return fmt.Errorf("failed to initialize both CoreGraphics EventTap and IOHIDManager (check Accessibility permissions)")
 	}
 
-	// Main loop: run runloop in short slices to check context cancellation
+	// Run the run loop in short slices to check context cancellation, emitting the
+	// HID reports completed during each slice.
 	for {
 		select {
 		case <-ctx.Done():
+			s.flushHID()
 			return nil
 		default:
 			C.CFRunLoopRunInMode(C.kCFRunLoopDefaultMode, 0.05, C.false)
+			s.flushHID()
 		}
 	}
 }
