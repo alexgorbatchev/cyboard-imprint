@@ -152,47 +152,123 @@ func TestDetectAnomalies_IntegerOverflowSignatures(t *testing.T) {
 	}
 }
 
-func TestDetectAnomalies_DisplayCross(t *testing.T) {
-	displays := []Display{
-		{ID: 2, Bounds: Rect{X: 0, Y: 0, Width: 2560, Height: 1440}, IsMain: true},
-		{ID: 3, Bounds: Rect{X: 511, Y: 1440, Width: 1440, Height: 900}, IsMain: false},
-	}
+var testDisplays = []Display{
+	{ID: 2, Bounds: Rect{X: 0, Y: 0, Width: 2560, Height: 1440}, IsMain: true},
+	{ID: 3, Bounds: Rect{X: 511, Y: 1440, Width: 1440, Height: 900}, IsMain: false},
+}
 
-	a := New(Config{
-		JumpThreshold: 50,
-		Displays:      displays,
-	})
-
-	t0 := time.Now()
-	// Cursor on Display 0
-	a.Process(Event{
-		Timestamp: t0,
-		CursorX:   1000,
-		CursorY:   1300,
-		DeltaX:    5,
-		DeltaY:    5,
-		Source:    SourceCG,
-	})
-
-	// Cursor teleports to Display 1 far away
-	anomalies := a.Process(Event{
-		Timestamp: t0.Add(8 * time.Millisecond),
-		CursorX:   800,
-		CursorY:   2000, // Now on Display 1 (1440 + 560)
-		DeltaX:    -200,
-		DeltaY:    700,
-		Source:    SourceCG,
-	})
-
-	foundCross := false
+func hasKind(anomalies []Anomaly, kind AnomalyKind) bool {
 	for _, an := range anomalies {
-		if an.Kind == AnomalyDisplayCross {
-			foundCross = true
-			break
+		if an.Kind == kind {
+			return true
 		}
 	}
-	if !foundCross {
-		t.Fatalf("expected AnomalyDisplayCross, got anomalies: %+v", anomalies)
+	return false
+}
+
+func TestDetectAnomalies_CursorLeaps(t *testing.T) {
+	t0 := time.Date(2026, 9, 24, 10, 0, 0, 0, time.UTC)
+	start := Event{Timestamp: t0, Source: SourceCG, CursorX: 1000, CursorY: 1300, DeltaX: 5, DeltaY: 5}
+
+	tests := []struct {
+		name     string
+		next     Event
+		wantKind AnomalyKind // empty means no anomaly expected
+	}{
+		{
+			name:     "crossing explained by delta",
+			next:     Event{Source: SourceCG, CursorX: 1000, CursorY: 1500, DeltaX: 0, DeltaY: 200},
+			wantKind: "",
+		},
+		{
+			name:     "crossing not explained by delta",
+			next:     Event{Source: SourceCG, CursorX: 800, CursorY: 2000, DeltaX: 3, DeltaY: 2},
+			wantKind: AnomalyDisplayCross,
+		},
+		{
+			name:     "leap within one display",
+			next:     Event{Source: SourceCG, CursorX: 2000, CursorY: 300, DeltaX: 4, DeltaY: -1},
+			wantKind: AnomalyCursorLeap,
+		},
+		{
+			name:     "sub-pixel rounding",
+			next:     Event{Source: SourceCG, CursorX: 1006.4, CursorY: 1305.7, DeltaX: 5, DeltaY: 5},
+			wantKind: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := New(Config{JumpThreshold: 50, Displays: testDisplays})
+			a.Process(start)
+			tt.next.Timestamp = t0.Add(8 * time.Millisecond)
+			anomalies := a.Process(tt.next)
+
+			if tt.wantKind == "" {
+				if len(anomalies) != 0 {
+					t.Fatalf("expected no anomalies, got %+v", anomalies)
+				}
+				return
+			}
+			if !hasKind(anomalies, tt.wantKind) {
+				t.Fatalf("expected %s, got %+v", tt.wantKind, anomalies)
+			}
+		})
+	}
+}
+
+func TestDetectAnomalies_SourcesAreIndependent(t *testing.T) {
+	t0 := time.Date(2026, 9, 24, 10, 0, 0, 0, time.UTC)
+	a := New(Config{JumpThreshold: 50, Displays: testDisplays})
+
+	// CG cursor on the secondary display, then an interleaved HID report that has no cursor position.
+	a.Process(Event{Timestamp: t0, Source: SourceCG, CursorX: 900, CursorY: 2000, DeltaX: -3, DeltaY: 0})
+	hid := a.Process(Event{Timestamp: t0.Add(10 * time.Microsecond), Source: SourceHID, DeviceName: "Imprint", DeltaX: -30, DeltaY: 0})
+	if len(hid) != 0 {
+		t.Fatalf("HID report must not be compared with a CG event, got %+v", hid)
+	}
+
+	cg := a.Process(Event{Timestamp: t0.Add(20 * time.Microsecond), Source: SourceCG, CursorX: 897, CursorY: 2000, DeltaX: -3, DeltaY: 0})
+	if len(cg) != 0 {
+		t.Fatalf("CG event must be compared with the previous CG event, not the HID report, got %+v", cg)
+	}
+}
+
+func TestDetectAnomalies_BurstRatePerDevice(t *testing.T) {
+	t0 := time.Date(2026, 9, 24, 10, 0, 0, 0, time.UTC)
+	a := New(Config{JumpThreshold: 50})
+
+	a.Process(Event{Timestamp: t0, Source: SourceHID, DeviceName: "Imprint", DeltaX: 2})
+	other := a.Process(Event{Timestamp: t0.Add(100 * time.Microsecond), Source: SourceHID, DeviceName: "Other Mouse", DeltaX: 30})
+	if hasKind(other, AnomalyBurstRate) {
+		t.Fatalf("reports from different devices must not form a burst, got %+v", other)
+	}
+
+	burst := a.Process(Event{Timestamp: t0.Add(200 * time.Microsecond), Source: SourceHID, DeviceName: "Imprint", DeltaX: 30})
+	if !hasKind(burst, AnomalyBurstRate) {
+		t.Fatalf("expected burst for two Imprint reports 0.2 ms apart, got %+v", burst)
+	}
+}
+
+func TestSessionSummary_StatsUseHIDReports(t *testing.T) {
+	t0 := time.Date(2026, 9, 24, 10, 0, 0, 0, time.UTC)
+	a := New(Config{JumpThreshold: 50})
+
+	for i := range 4 {
+		ts := t0.Add(time.Duration(i) * time.Millisecond)
+		a.Process(Event{Timestamp: ts, Source: SourceHID, DeviceName: "Imprint", DeltaX: 3, DeltaY: -2})
+		a.Process(Event{Timestamp: ts.Add(50 * time.Microsecond), Source: SourceCG, CursorX: float64(100 + 40*i), CursorY: 100, DeltaX: 40, DeltaY: 0})
+	}
+
+	summary := a.Summary()
+	if summary.HIDEvents != 4 || summary.CGEvents != 4 {
+		t.Fatalf("expected 4 HID and 4 CG events, got %d and %d", summary.HIDEvents, summary.CGEvents)
+	}
+	if summary.XStats.Max != 3 || summary.YStats.Min != -2 {
+		t.Fatalf("expected stats from HID reports only (x max 3, y min -2), got %+v / %+v", summary.XStats, summary.YStats)
+	}
+	if summary.Buckets[1].Count != 4 {
+		t.Fatalf("expected 4 HID reports in the 3-10 bucket, got %+v", summary.Buckets)
 	}
 }
 

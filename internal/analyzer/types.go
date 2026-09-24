@@ -22,6 +22,7 @@ const (
 	AnomalyIntegerOverflow AnomalyKind = "integer_overflow"
 	AnomalySignFlip        AnomalyKind = "sign_flip"
 	AnomalyDisplayCross    AnomalyKind = "display_cross"
+	AnomalyCursorLeap      AnomalyKind = "cursor_leap"
 	AnomalyBurstRate       AnomalyKind = "burst_rate"
 )
 
@@ -97,8 +98,10 @@ type DeltaStats struct {
 // Summary aggregates statistics and diagnostic conclusions.
 type Summary struct {
 	TotalEvents      int64               `json:"total_events"`
+	HIDEvents        int64               `json:"hid_events"`
+	CGEvents         int64               `json:"cg_events"`
 	Duration         time.Duration       `json:"duration"`
-	AvgHz            float64             `json:"avg_hz"`
+	AvgHz            float64             `json:"avg_hz"` // HID report rate, or CG event rate without HID
 	AnomalyCount     int64               `json:"anomaly_count"`
 	AnomalyBreakdown map[AnomalyKind]int `json:"anomaly_breakdown"`
 	XStats           DeltaStats          `json:"x_stats"`

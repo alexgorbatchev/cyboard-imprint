@@ -2,27 +2,71 @@ package analyzer
 
 import (
 	"fmt"
+	"math"
 	"time"
 )
 
+// leapTolerancePx is how far (in points) the cursor may move beyond what the event delta
+// explains before it counts as a teleport. Recorded sessions show sub-pixel rounding of at most ~2 points.
+const leapTolerancePx = 20
+
+// burstIntervalMs is the report spacing below which a large HID delta counts as a burst.
+// A full-speed USB device is polled at most once per millisecond.
+const burstIntervalMs = 0.4
+
+// burstDelta is the delta magnitude a report needs before a short interval is reported as a burst.
+const burstDelta = 20
+
+// deltaStream accumulates delta statistics for one event source.
+type deltaStream struct {
+	events       int64
+	xValues      []int64
+	yValues      []int64
+	bucketCounts [6]int64
+}
+
+func (d *deltaStream) add(e Event) {
+	d.events++
+	d.xValues = append(d.xValues, e.DeltaX)
+	d.yValues = append(d.yValues, e.DeltaY)
+
+	mag := max(abs(e.DeltaX), abs(e.DeltaY))
+	switch {
+	case mag <= 2:
+		d.bucketCounts[0]++
+	case mag <= 10:
+		d.bucketCounts[1]++
+	case mag <= 30:
+		d.bucketCounts[2]++
+	case mag <= 60:
+		d.bucketCounts[3]++
+	case mag <= 120:
+		d.bucketCounts[4]++
+	default:
+		d.bucketCounts[5]++
+	}
+}
+
 // Analyzer inspects cursor events in real time or from recorded logs.
+//
+// HID reports (raw sensor counts) and CG events (post-acceleration cursor positions) are
+// separate streams: each event is only ever compared with the previous event of the same
+// stream, and for HID of the same device.
 type Analyzer struct {
 	config    Config
-	prevEvent *Event
+	prevHID   map[string]Event
+	prevCG    *Event
 	startTime time.Time
 	lastTime  time.Time
 
 	events []Event
 
-	// Statistics tracking
 	totalEvents      int64
 	anomalyCount     int64
 	anomalyBreakdown map[AnomalyKind]int
 
-	xValues []int64
-	yValues []int64
-
-	bucketCounts [6]int64
+	hid deltaStream
+	cg  deltaStream
 }
 
 // New creates an Analyzer with given configuration.
@@ -32,94 +76,106 @@ func New(cfg Config) *Analyzer {
 	}
 	return &Analyzer{
 		config:           cfg,
+		prevHID:          make(map[string]Event),
 		anomalyBreakdown: make(map[AnomalyKind]int),
 	}
 }
 
+func hidDeviceKey(e Event) string {
+	return fmt.Sprintf("%04x:%04x:%s", e.DeviceVID, e.DevicePID, e.DeviceName)
+}
+
+func intervalMs(prev, curr Event) float64 {
+	if prev.Timestamp.IsZero() || curr.Timestamp.IsZero() {
+		return 0
+	}
+	return float64(curr.Timestamp.Sub(prev.Timestamp).Microseconds()) / 1000.0
+}
+
 // Process analyzes a single event, returns any anomalies detected, and updates stats.
 func (a *Analyzer) Process(curr Event) []Anomaly {
-	var anomalies []Anomaly
-
 	if a.startTime.IsZero() {
 		a.startTime = curr.Timestamp
 	}
 	a.lastTime = curr.Timestamp
 
-	// Compute interval if not set
-	if a.prevEvent != nil && curr.IntervalMs == 0 && !curr.Timestamp.IsZero() && !a.prevEvent.Timestamp.IsZero() {
-		curr.IntervalMs = float64(curr.Timestamp.Sub(a.prevEvent.Timestamp).Microseconds()) / 1000.0
-	}
-
-	// 1. Check for Integer Overflow / Boundary signatures
-	if an := a.checkIntegerOverflow(curr); an != nil {
-		anomalies = append(anomalies, *an)
-	}
-
-	// 2. Check for sudden jump exceeding threshold
-	if an := a.checkJump(curr); an != nil {
-		anomalies = append(anomalies, *an)
-	}
-
-	// 3. Check for sign flip discontinuity
-	if a.prevEvent != nil {
-		if an := a.checkSignFlip(*a.prevEvent, curr); an != nil {
-			anomalies = append(anomalies, *an)
-		}
-	}
-
-	// 4. Check for display crossing leaps (for CoreGraphics events)
-	if a.prevEvent != nil && len(a.config.Displays) > 1 && curr.Source == SourceCG {
-		if an := a.checkDisplayCross(*a.prevEvent, curr); an != nil {
-			anomalies = append(anomalies, *an)
-		}
-	}
-
-	// 5. Check burst rate glitch
-	if curr.IntervalMs > 0 && curr.IntervalMs < 0.4 && (abs(curr.DeltaX) > 20 || abs(curr.DeltaY) > 20) {
-		an := Anomaly{
-			Kind:        AnomalyBurstRate,
-			Severity:    "medium",
-			Title:       "High-Frequency Sensor Burst",
-			Description: fmt.Sprintf("Event arrived within %.2f ms with elevated delta (%d, %d)", curr.IntervalMs, curr.DeltaX, curr.DeltaY),
-			Event:       curr,
-		}
-		anomalies = append(anomalies, an)
-	}
-
-	// Update statistics
-	a.totalEvents++
-	a.xValues = append(a.xValues, curr.DeltaX)
-	a.yValues = append(a.yValues, curr.DeltaY)
-
-	mag := abs(curr.DeltaX)
-	if abs(curr.DeltaY) > mag {
-		mag = abs(curr.DeltaY)
-	}
-	switch {
-	case mag <= 2:
-		a.bucketCounts[0]++
-	case mag <= 10:
-		a.bucketCounts[1]++
-	case mag <= 30:
-		a.bucketCounts[2]++
-	case mag <= 60:
-		a.bucketCounts[3]++
-	case mag <= 120:
-		a.bucketCounts[4]++
+	var anomalies []Anomaly
+	switch curr.Source {
+	case SourceCG:
+		curr, anomalies = a.processCG(curr)
 	default:
-		a.bucketCounts[5]++
+		curr, anomalies = a.processHID(curr)
 	}
 
+	a.totalEvents++
 	for _, an := range anomalies {
 		a.anomalyCount++
 		a.anomalyBreakdown[an.Kind]++
 	}
-
-	eventCopy := curr
-	a.prevEvent = &eventCopy
 	a.events = append(a.events, curr)
 
 	return anomalies
+}
+
+func (a *Analyzer) processHID(curr Event) (Event, []Anomaly) {
+	var anomalies []Anomaly
+	key := hidDeviceKey(curr)
+	prev, hasPrev := a.prevHID[key]
+	if hasPrev && curr.IntervalMs == 0 {
+		curr.IntervalMs = intervalMs(prev, curr)
+	}
+
+	if an := a.checkIntegerOverflow(curr); an != nil {
+		anomalies = append(anomalies, *an)
+	}
+	if an := a.checkJump(curr); an != nil {
+		anomalies = append(anomalies, *an)
+	}
+	if hasPrev {
+		if an := a.checkSignFlip(prev, curr); an != nil {
+			anomalies = append(anomalies, *an)
+		}
+	}
+	if an := checkBurstRate(curr); an != nil {
+		anomalies = append(anomalies, *an)
+	}
+
+	a.hid.add(curr)
+	a.prevHID[key] = curr
+	return curr, anomalies
+}
+
+func (a *Analyzer) processCG(curr Event) (Event, []Anomaly) {
+	var anomalies []Anomaly
+	if a.prevCG != nil {
+		if curr.IntervalMs == 0 {
+			curr.IntervalMs = intervalMs(*a.prevCG, curr)
+		}
+		if an := a.checkCursorLeap(*a.prevCG, curr); an != nil {
+			anomalies = append(anomalies, *an)
+		}
+	}
+
+	a.cg.add(curr)
+	prev := curr
+	a.prevCG = &prev
+	return curr, anomalies
+}
+
+func checkBurstRate(curr Event) *Anomaly {
+	if curr.IntervalMs <= 0 || curr.IntervalMs >= burstIntervalMs {
+		return nil
+	}
+	if abs(curr.DeltaX) <= burstDelta && abs(curr.DeltaY) <= burstDelta {
+		return nil
+	}
+	return &Anomaly{
+		Kind:        AnomalyBurstRate,
+		Severity:    "medium",
+		Title:       "High-Frequency Sensor Burst",
+		Description: fmt.Sprintf("HID report arrived %.3f ms after the previous one with elevated delta (%d, %d)", curr.IntervalMs, curr.DeltaX, curr.DeltaY),
+		Event:       curr,
+	}
 }
 
 func (a *Analyzer) checkIntegerOverflow(curr Event) *Anomaly {
@@ -189,32 +245,52 @@ func (a *Analyzer) checkSignFlip(prev Event, curr Event) *Anomaly {
 	return nil
 }
 
-func (a *Analyzer) checkDisplayCross(prev Event, curr Event) *Anomaly {
-	var prevDisp, currDisp *Display
+func (a *Analyzer) displayAt(x, y float64) *Display {
 	for i := range a.config.Displays {
-		d := &a.config.Displays[i]
-		if d.Bounds.Contains(prev.CursorX, prev.CursorY) {
-			prevDisp = d
-		}
-		if d.Bounds.Contains(curr.CursorX, curr.CursorY) {
-			currDisp = d
+		if a.config.Displays[i].Bounds.Contains(x, y) {
+			return &a.config.Displays[i]
 		}
 	}
+	return nil
+}
 
+// checkCursorLeap flags a cursor that moved further than its own event delta explains,
+// which is what a real teleport looks like. Crossing a display edge with a matching
+// delta is ordinary movement and is not flagged.
+func (a *Analyzer) checkCursorLeap(prev Event, curr Event) *Anomaly {
+	moved := math.Hypot(curr.CursorX-prev.CursorX, curr.CursorY-prev.CursorY)
+	explained := math.Hypot(float64(curr.DeltaX), float64(curr.DeltaY))
+	unexplained := moved - explained
+	if unexplained <= leapTolerancePx {
+		return nil
+	}
+
+	details := map[string]string{
+		"moved_px":       fmt.Sprintf("%.1f", moved),
+		"unexplained_px": fmt.Sprintf("%.1f", unexplained),
+	}
+	prevDisp := a.displayAt(prev.CursorX, prev.CursorY)
+	currDisp := a.displayAt(curr.CursorX, curr.CursorY)
 	if prevDisp != nil && currDisp != nil && prevDisp.ID != currDisp.ID {
+		details["from_display"] = fmt.Sprintf("%d", prevDisp.ID)
+		details["to_display"] = fmt.Sprintf("%d", currDisp.ID)
 		return &Anomaly{
 			Kind:        AnomalyDisplayCross,
 			Severity:    "high",
 			Title:       "Multi-Monitor Display Boundary Leap",
-			Description: fmt.Sprintf("Cursor teleported from Display %d to Display %d with delta (%d, %d)", prevDisp.ID, currDisp.ID, curr.DeltaX, curr.DeltaY),
+			Description: fmt.Sprintf("Cursor jumped from Display %d to Display %d by %.0f px with only delta (%d, %d)", prevDisp.ID, currDisp.ID, moved, curr.DeltaX, curr.DeltaY),
 			Event:       curr,
-			Details: map[string]string{
-				"from_display": fmt.Sprintf("%d", prevDisp.ID),
-				"to_display":   fmt.Sprintf("%d", currDisp.ID),
-			},
+			Details:     details,
 		}
 	}
-	return nil
+	return &Anomaly{
+		Kind:        AnomalyCursorLeap,
+		Severity:    "high",
+		Title:       "Cursor Leap",
+		Description: fmt.Sprintf("Cursor moved %.0f px with only delta (%d, %d)", moved, curr.DeltaX, curr.DeltaY),
+		Event:       curr,
+		Details:     details,
+	}
 }
 
 // Summary builds a complete report of the analyzed session.
@@ -224,27 +300,35 @@ func (a *Analyzer) Summary() Summary {
 		duration = 0
 	}
 
-	var avgHz float64
-	if duration.Seconds() > 0 {
-		avgHz = float64(a.totalEvents) / duration.Seconds()
+	// Raw HID reports carry the sensor signal; CG deltas are only used when no HID stream was captured.
+	stream := &a.hid
+	if stream.events == 0 {
+		stream = &a.cg
 	}
 
-	xStats := calculateStats(a.xValues)
-	yStats := calculateStats(a.yValues)
+	var avgHz float64
+	if duration.Seconds() > 0 {
+		avgHz = float64(stream.events) / duration.Seconds()
+	}
+
+	xStats := calculateStats(stream.xValues)
+	yStats := calculateStats(stream.yValues)
 
 	buckets := []HistogramBucket{
-		{Min: 0, Max: 2, Count: a.bucketCounts[0]},
-		{Min: 3, Max: 10, Count: a.bucketCounts[1]},
-		{Min: 11, Max: 30, Count: a.bucketCounts[2]},
-		{Min: 31, Max: 60, Count: a.bucketCounts[3]},
-		{Min: 61, Max: 120, Count: a.bucketCounts[4]},
-		{Min: 121, Max: 100000, Count: a.bucketCounts[5]},
+		{Min: 0, Max: 2, Count: stream.bucketCounts[0]},
+		{Min: 3, Max: 10, Count: stream.bucketCounts[1]},
+		{Min: 11, Max: 30, Count: stream.bucketCounts[2]},
+		{Min: 31, Max: 60, Count: stream.bucketCounts[3]},
+		{Min: 61, Max: 120, Count: stream.bucketCounts[4]},
+		{Min: 121, Max: 100000, Count: stream.bucketCounts[5]},
 	}
 
 	diagnoses := a.generateDiagnoses()
 
 	return Summary{
 		TotalEvents:      a.totalEvents,
+		HIDEvents:        a.hid.events,
+		CGEvents:         a.cg.events,
 		Duration:         duration,
 		AvgHz:            avgHz,
 		AnomalyCount:     a.anomalyCount,
