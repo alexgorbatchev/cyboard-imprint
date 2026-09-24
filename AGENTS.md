@@ -1,6 +1,6 @@
 ---
 created_on: 2026-09-23 13:04
-last_modified: 2026-09-24 11:05
+last_modified: 2026-09-24 11:45
 status: current
 ---
 
@@ -22,7 +22,7 @@ Diagnostic tool for mouse and trackball cursor teleportation, delta jumps, and m
 - Timeline Analysis: `just timeline trackball.ndjson 30`
 - Directional Spikes: `just spikes trackball.ndjson 30`
 - Inspect UF2 Header: `just inspect-uf2` (defaults to the prebuilt binary)
-- Flash Firmware: `just flash` -> waits for `/Volumes/RPI-RP2` (hold the top-left key while plugging in USB; right half: top-right key), copies the prebuilt UF2, waits for the keyboard to reconnect, and fails unless it reports `usb.device_version` from `firmware/keyboards/cyboard/info.json`; `just flash <file> ""` skips the version check
+- Flash Firmware: `just flash [file] [variant] [product] [timeout]` -> refuses a UF2 whose file name is not for `variant` (default `imprint_number_row_5key_bottom_row`) or whose embedded USB identity (read by `mouse-issues firmware inspect`) is not `product` (default `Imprint (Patched)`) on 0x4359:0x0000; then waits for `/Volumes/RPI-RP2`, copies, and fails unless the reconnected keyboard reports the product name and version embedded in the UF2
 - Build firmware (run in `firmware/`, after `git submodule update --init --recursive --depth 1 lib/chibios lib/chibios-contrib lib/pico-sdk lib/printf lib/lvgl`): `docker run --rm -v "$PWD":/qmk_firmware -w /qmk_firmware ghcr.io/qmk/qmk_cli@sha256:2dc05fc9f32efebd6b05c2b8676ee548358bc7e151e9dbf4dac6b6eed4513b07 bash -c 'git config --global --add safe.directory /qmk_firmware && make cyboard/imprint/imprint_number_row_5key_bottom_row:vial'` (same image as the fork's CI; writes the `.uf2` to `firmware/`)
 
 ## Setup
@@ -65,11 +65,12 @@ All firmware fixes live in [`alexgorbatchev/vial-qmk`](https://github.com/alexgo
 First-boot defaults (`eeconfig_init_kb`: left points, right drag-scrolls) only apply to an empty EEPROM.
 
 ## Prebuilt Binary Location
-- Active binary matching the user's hardware (built locally from `cyboard` at `e42e14e5`, `DEVICE_VER 0x0023`):
+- Active binary matching the user's hardware (built locally from `cyboard` at `eb262a52`, `DEVICE_VER 0x0023`):
   `firmware/bin/cyboard-imprint-uf2/cyboard_imprint_imprint_number_row_5key_bottom_row_vial.uf2`
 
 ## Gotchas
-- Bootmagic defaults to matrix (0,0), which has no key in the Imprint layouts, and wipes EEPROM (Vial keymap included) via `eeconfig_disable()` -> `imprint_number_row_5key_bottom_row` sets `bootmagic.matrix` [5,5] and `split.bootmagic.matrix` [12,5] in its `info.json` and overrides `bootmagic_reset_eeprom()` as a no-op in `imprint_number_row_5key_bottom_row.c`; other layouts still need the double-tap reset button.
+- Bootmagic defaults to matrix (0,0), which has no key in the Imprint layouts, and wipes EEPROM (Vial keymap included) via `eeconfig_disable()` -> `imprint_number_row_5key_bottom_row` sets `bootmagic.matrix` [5,5] and `split.bootmagic.matrix` [12,5] in its `info.json` and overrides `bootmagic_scan()` in `imprint_number_row_5key_bottom_row.c` to skip the EEPROM reset and light the LEDs blue before `bootloader_jump()`; `ws2812_flush()` is asynchronous, so the override waits for the frame and latch time before jumping. Other layouts still need the double-tap reset button.
+- A pattern like `firmware/` in `.gitignore` also matches `internal/firmware/` -> anchor root-only ignores with a leading `/` (`internal/firmware` was once silently untracked, breaking clean checkouts).
 - Do not re-apply CPI in `charybdis_config_dual_sync_handler` -> QMK already sends the non-local side's CPI to the slave (`pointing_device_set_cpi_on_side` stores `shared_cpi`, `PUT_POINTING_CPI` transfers it, `pointing_handlers_slave` applies it); re-applying it rewrites the sensor CPI every 500 ms sync.
 - `CGEventGetTimestamp` returns nanoseconds for posted events on macOS 26 but has been reported to return Mach ticks on Apple Silicon -> `cgTimestampToNanos` in `internal/capture/capture_darwin.go` picks the reading closest to current uptime; `IOHIDValueGetTimeStamp` is always Mach ticks and goes through `mach_timebase_info`.
 - IOHIDManager delivers each report element as a separate value -> `reportAssembler` (`internal/capture/assembler.go`) groups values by report timestamp per device; never pair X/Y by arrival order.

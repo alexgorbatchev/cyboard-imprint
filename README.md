@@ -177,7 +177,7 @@ The `./firmware` directory contains our fork of Cyboard's Vial-QMK firmware ([`a
 6. **Names the Trackball Keycodes in Vial**:
    - The 5-key bottom row layouts show the trackball keys as `L_DPI_INC`, `L_DPI_DEC`, `L_DragScroll_TOG`, and so on, instead of `User 0`–`User 15`.
 7. **Enters the Bootloader Without a Reset Button**:
-   - Holding the top-left key (right half: top-right key) while plugging in USB mounts the `RPI-RP2` drive, and keeps the Vial keymap and trackball settings (stock Bootmagic wipes EEPROM). Available on the `number_row` + `5key_bottom_row` layout.
+   - Holding the top-left key (right half: top-right key) while plugging in USB turns that half's LEDs solid blue and mounts the `RPI-RP2` drive, and keeps the Vial keymap and trackball settings (stock Bootmagic wipes EEPROM). Available on the `number_row` + `5key_bottom_row` layout.
 8. **Identifies Itself Over USB**:
    - The keyboard reports the product name **`Imprint (Patched)`** and firmware version `0.2.3`, which `mouse-issues device list` shows.
 9. **Keeps Motion Within the Report Descriptor**:
@@ -198,16 +198,13 @@ Your matching `.uf2` binary is located at:
    - Open [vial.rocks](https://vial.rocks/) or the Vial desktop app.
    - Click `File` -> `Save Current Layout (Ctrl + S)` to save a backup `.vil` file.
 2. **Flash Left (Primary) Half**:
-   - Unplug the USB cable, then hold the top-left key (`=`) while plugging it back in. Firmware older than `0.2.3` does not support this; double-tap the physical reset button on the back of the left half instead.
-   - A USB mass storage drive named `RPI-RP2` will appear in Finder.
-   - Drag and drop your matching `.uf2` file into `RPI-RP2`.
-   - The drive will automatically unmount once flashing completes.
+   - Unplug the USB cable, then hold the top-left key (`=`) while plugging it back in. The LEDs turn solid blue and a USB drive named `RPI-RP2` appears in Finder. Firmware older than `0.2.3` has no flash key and no blue LEDs; double-tap the physical reset button on the back of the left half instead.
+   - Drag and drop your matching `.uf2` file into `RPI-RP2` and keep the cable plugged in until the drive unmounts by itself.
 3. **Flash Right (Secondary) Half**:
-   - Unplug the interconnect cable between the two halves.
-   - Connect the right half directly to your computer via USB (remove the rubber plug covering the secondary USB-C port).
-   - Hold the top-right key (`-`) while plugging it in, or double-tap the reset button on the back of the right half on firmware older than `0.2.3`.
-   - Drag and drop the exact same `.uf2` file into the `RPI-RP2` drive.
-   - Reconnect the two halves using your interconnect cable.
+   - Unplug the USB cable first, then disconnect the interconnect cable between the two halves. Only connect or disconnect the interconnect cable while USB is unplugged.
+   - Connect the right half directly to your computer via USB (remove the rubber plug covering the secondary USB-C port) while holding its top-right key (`-`), or double-tap its reset button on firmware older than `0.2.3`.
+   - Drag and drop the exact same `.uf2` file into the `RPI-RP2` drive and wait for it to unmount.
+   - Unplug USB, reconnect the two halves with the interconnect cable, then plug USB back into the left half.
 4. **Verify the Running Firmware**:
    - Run `mouse-issues device list` and confirm the trackball shows as `Imprint (Patched)` with `Version      : 0.2.3`.
 5. **Tune Sensitivity**:
@@ -216,11 +213,11 @@ Your matching `.uf2` binary is located at:
 
 ### Can You Brick the Keyboard?
 
-**No.** The Cyboard Imprint is powered by Raspberry Pi RP2040 microcontrollers. The RP2040 bootloader is permanently hard-masked into silicon read-only memory (ROM) at the factory:
+**Not permanently.** The Cyboard Imprint is powered by Raspberry Pi RP2040 microcontrollers, whose USB bootloader lives in read-only memory (ROM) and cannot be overwritten or erased by any firmware or interrupted flash. How easy recovery is depends on what went wrong:
 
-- It is physically impossible to overwrite, erase, or corrupt the RP2040 bootloader with a bad firmware build or an interrupted flash.
-- If you flash the wrong layout variant or disconnect the USB cable mid-transfer, double-tapping the reset button will always remount the `RPI-RP2` drive, allowing you to drag in a new `.uf2` file.
-- Raspberry Pi also publishes a `flash_nuke.uf2` utility that completely clears flash memory if EEPROM data ever needs to be reset to factory zero.
+- **Wrong layout variant flashed:** the keys are scrambled and the flash key may not exist, but the firmware still runs, so double-tapping the reset button remounts `RPI-RP2` for a new `.uf2`.
+- **USB unplugged mid-flash:** the flash key and the double-tap reset are both features of the keyboard firmware, so they only work if the half-written firmware still starts. If nothing responds, the RP2040 has to be forced into its ROM bootloader by holding the chip's QSPI chip-select line low while powering on (the BOOTSEL strap). Whether the Imprint board exposes a BOOTSEL button or pad for this is not documented here; ask Cyboard before relying on it.
+- **Settings reset:** Raspberry Pi publishes a `flash_nuke.uf2` utility that erases the whole flash, including the saved keymap and trackball settings; flash the firmware again afterwards.
 
 # License
 
