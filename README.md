@@ -176,9 +176,11 @@ The `./firmware` directory contains our fork of Cyboard's Vial-QMK firmware ([`a
    - Each trackball has its own scroll accumulator, so drag-scrolling on both halves at once no longer mixes their motion.
 6. **Names the Trackball Keycodes in Vial**:
    - The 5-key bottom row layouts show the trackball keys as `L_DPI_INC`, `L_DPI_DEC`, `L_DragScroll_TOG`, and so on, instead of `User 0`–`User 15`.
-7. **Identifies Itself Over USB**:
+7. **Enters the Bootloader Without a Reset Button**:
+   - Holding the top-left key (right half: top-right key) while plugging in USB mounts the `RPI-RP2` drive, and keeps the Vial keymap and trackball settings (stock Bootmagic wipes EEPROM). Available on the `number_row` + `5key_bottom_row` layout.
+8. **Identifies Itself Over USB**:
    - The keyboard reports the product name **`Imprint (Patched)`** and firmware version `0.2.3`, which `mouse-issues device list` shows.
-8. **Keeps Motion Within the Report Descriptor**:
+9. **Keeps Motion Within the Report Descriptor**:
    - Fast negative motion is clamped to `-127`, the minimum the mouse report descriptor declares, instead of `-128` (backported from upstream QMK).
 
 First-boot defaults (left trackball points, right trackball drag-scrolls) apply only when the EEPROM is empty; flashing keeps the drag-scroll settings already saved on the keyboard.
@@ -196,14 +198,14 @@ Your matching `.uf2` binary is located at:
    - Open [vial.rocks](https://vial.rocks/) or the Vial desktop app.
    - Click `File` -> `Save Current Layout (Ctrl + S)` to save a backup `.vil` file.
 2. **Flash Left (Primary) Half**:
-   - Double-tap the physical reset button on the back of the left half.
+   - Unplug the USB cable, then hold the top-left key (`=`) while plugging it back in. Firmware older than `0.2.3` does not support this; double-tap the physical reset button on the back of the left half instead.
    - A USB mass storage drive named `RPI-RP2` will appear in Finder.
    - Drag and drop your matching `.uf2` file into `RPI-RP2`.
    - The drive will automatically unmount once flashing completes.
 3. **Flash Right (Secondary) Half**:
    - Unplug the interconnect cable between the two halves.
    - Connect the right half directly to your computer via USB (remove the rubber plug covering the secondary USB-C port).
-   - Double-tap the reset button on the back of the right half.
+   - Hold the top-right key (`-`) while plugging it in, or double-tap the reset button on the back of the right half on firmware older than `0.2.3`.
    - Drag and drop the exact same `.uf2` file into the `RPI-RP2` drive.
    - Reconnect the two halves using your interconnect cable.
 4. **Verify the Running Firmware**:
