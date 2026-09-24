@@ -3,9 +3,9 @@ package main
 import (
 	"fmt"
 
-	"github.com/spf13/cobra"
 	"github.com/alexgorbatchev/mouse-issues/internal/agent"
 	"github.com/alexgorbatchev/mouse-issues/internal/firmware"
+	"github.com/spf13/cobra"
 )
 
 func newFirmwareCommand() *cobra.Command {

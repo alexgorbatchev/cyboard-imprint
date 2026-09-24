@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/spf13/cobra"
 	"github.com/alexgorbatchev/mouse-issues/internal/agent"
 	"github.com/alexgorbatchev/mouse-issues/internal/device"
+	"github.com/spf13/cobra"
 )
 
 func newDeviceCommand() *cobra.Command {

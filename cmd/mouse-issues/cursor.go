@@ -9,12 +9,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/alexgorbatchev/mouse-issues/internal/agent"
 	"github.com/alexgorbatchev/mouse-issues/internal/analyzer"
 	"github.com/alexgorbatchev/mouse-issues/internal/capture"
 	"github.com/alexgorbatchev/mouse-issues/internal/device"
 	"github.com/alexgorbatchev/mouse-issues/internal/recorder"
+	"github.com/spf13/cobra"
 )
 
 func newCursorCommand() *cobra.Command {
