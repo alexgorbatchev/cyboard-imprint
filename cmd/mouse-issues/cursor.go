@@ -21,7 +21,7 @@ func newCursorCommand() *cobra.Command {
 	cursorCmd := &cobra.Command{
 		Use:   "cursor",
 		Short: "Capture, stream, record, and analyze cursor movement",
-		Long:  "Tools to detect teleportation spikes, sign-extension glitches, and multi-monitor leap anomalies.",
+		Long:  "Tools to stream, record, and analyze cursor motion, detecting report saturation, large deltas, direction flips, and cursor teleports.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},
@@ -163,7 +163,7 @@ func newCursorRecordCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "record",
 		Short: "Record cursor motion and raw HID deltas to a file",
-		Long:  "Records all cursor and pointing events with microsecond timestamps and anomaly tags to an NDJSON file.",
+		Long:  "Streams a session header (displays, devices, firmware versions) followed by all motion events and anomaly tags into an NDJSON file for offline analysis.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if outputPath == "" {
@@ -280,7 +280,7 @@ func newCursorAnalyzeCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "analyze <file>",
 		Short: "Analyze recorded cursor session file and output diagnosis",
-		Long:  "Parses a recorded NDJSON file, calculates velocity, delta histograms, overflow boundaries, and diagnostic findings.",
+		Long:  "Parses an NDJSON recording, reports the devices and firmware versions it came from, computes delta histograms, and outputs diagnoses.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			filePath := args[0]

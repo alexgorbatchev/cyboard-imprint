@@ -20,16 +20,16 @@ var techCatalog = cobrahelptree.TechCatalog{
 	},
 	"mouse-issues device list": {
 		Summary:     "List connected pointing devices and active displays",
-		Description: "Enumerate USB/Bluetooth pointing devices with vendor, product, and transport info, along with monitor bounds.",
+		Description: "Enumerate USB/Bluetooth pointing devices with vendor, product, firmware version, and transport info, along with monitor bounds.",
 	},
 	"mouse-issues device inspect": {
 		Summary:     "Inspect HID report descriptor elements for a pointing device",
-		Description: "Deeply inspect report IDs, element sizes, counts, and logical bounds to check for coordinate clipping or unsigned bugs.",
+		Description: "Inspect report IDs, element sizes, counts, and logical bounds to see how much motion one report can carry before it saturates.",
 		Args:        "[device]",
 	},
 	"mouse-issues cursor": {
 		Summary:     "Capture, stream, record, and analyze cursor movement",
-		Description: "Tools to stream, record, and analyze cursor motion, detecting sudden delta jumps and integer overflow anomalies.",
+		Description: "Tools to stream, record, and analyze cursor motion, detecting report saturation, large deltas, direction flips, and cursor teleports.",
 	},
 	"mouse-issues cursor monitor": {
 		Summary:     "Live stream cursor motion and highlight jump anomalies",
@@ -37,11 +37,11 @@ var techCatalog = cobrahelptree.TechCatalog{
 	},
 	"mouse-issues cursor record": {
 		Summary:     "Record cursor motion and raw HID deltas to a file",
-		Description: "Streams all motion packets and anomaly tags into an NDJSON file for offline analysis and debugging.",
+		Description: "Streams a session header (displays, devices, firmware versions) followed by all motion events and anomaly tags into an NDJSON file for offline analysis.",
 	},
 	"mouse-issues cursor analyze": {
 		Summary:     "Analyze recorded cursor session file and output diagnosis",
-		Description: "Parses an NDJSON recording, computes delta histograms, identifies boundary overflows, and outputs diagnoses.",
+		Description: "Parses an NDJSON recording, reports the devices and firmware versions it came from, computes delta histograms, and outputs diagnoses.",
 		Args:        "<file>",
 	},
 	"mouse-issues cursor timeline": {

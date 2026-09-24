@@ -29,7 +29,7 @@ func newDeviceListCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
 		Short: "List connected pointing devices and active displays",
-		Long:  "Enumerate all USB/Bluetooth pointing devices and active monitor boundaries.",
+		Long:  "Enumerate USB/Bluetooth pointing devices with vendor, product, firmware version, and transport info, along with monitor bounds.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			devices, devErr := device.ListPointingDevices()
@@ -123,7 +123,7 @@ func newDeviceInspectCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "inspect [device]",
 		Short: "Inspect HID report descriptor elements for a pointing device",
-		Long:  "Deeply inspects report IDs, element sizes, counts, logical min/max values, and firmware coordinate constraints.",
+		Long:  "Inspect report IDs, element sizes, counts, and logical bounds to see how much motion one report can carry before it saturates.",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			query := targetDevice

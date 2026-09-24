@@ -42,6 +42,17 @@ func TestRootCommand_HelpAndVersion(t *testing.T) {
 	}
 }
 
+func TestDeviceListHelp_MentionsFirmwareVersion(t *testing.T) {
+	t.Setenv("AGENT", "0")
+	out, err := executeCommand("device", "list", "--help")
+	if err != nil {
+		t.Fatalf("device list --help failed: %v", err)
+	}
+	if !strings.Contains(out, "firmware version") {
+		t.Errorf("expected help to mention the firmware version, got: %s", out)
+	}
+}
+
 func TestStatusCommand_HumanMode(t *testing.T) {
 	t.Setenv("AGENT", "0")
 	out, err := executeCommand("status")
