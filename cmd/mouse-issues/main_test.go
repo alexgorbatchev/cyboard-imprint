@@ -73,6 +73,9 @@ func TestDeviceListCommand_HumanAndAgent(t *testing.T) {
 	if !strings.Contains(out, "Connected Pointing Devices:") {
 		t.Errorf("expected 'Connected Pointing Devices:' in human output, got: %s", out)
 	}
+	if strings.Contains(out, "Vendor ID") && !strings.Contains(out, "Version      :") {
+		t.Errorf("expected a Version line for each listed device, got: %s", out)
+	}
 
 	t.Setenv("AGENT", "1")
 	agentOut, err := executeCommand("device", "list")
@@ -92,6 +95,9 @@ func TestDeviceInspectCommand_Default(t *testing.T) {
 	}
 	if !strings.Contains(out, "HID Report Elements:") {
 		t.Errorf("expected 'HID Report Elements:' in output, got: %s", out)
+	}
+	if !strings.Contains(out, "Version      :") {
+		t.Errorf("expected device Version line in output, got: %s", out)
 	}
 }
 

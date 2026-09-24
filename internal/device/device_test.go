@@ -25,6 +25,24 @@ func TestGetUsageName(t *testing.T) {
 	}
 }
 
+func TestFormatBCDVersion(t *testing.T) {
+	tests := []struct {
+		bcd  uint32
+		want string
+	}{
+		{bcd: 0x0022, want: "0.2.2"},
+		{bcd: 0x0021, want: "0.2.1"},
+		{bcd: 0x0100, want: "1.0.0"},
+		{bcd: 0x1234, want: "12.3.4"},
+		{bcd: 0, want: "0.0.0"},
+	}
+	for _, tt := range tests {
+		if got := FormatBCDVersion(tt.bcd); got != tt.want {
+			t.Errorf("FormatBCDVersion(0x%04x) = %q, want %q", tt.bcd, got, tt.want)
+		}
+	}
+}
+
 func TestListDisplays(t *testing.T) {
 	displays, err := ListDisplays()
 	if err != nil {
@@ -50,7 +68,7 @@ func TestListPointingDevices(t *testing.T) {
 		return
 	}
 	for _, dev := range devices {
-		t.Logf("Device: %s [%s] VID=0x%04x PID=0x%04x Serial=%s",
-			dev.Name, dev.Manufacturer, dev.VendorID, dev.ProductID, dev.SerialNumber)
+		t.Logf("Device: %s [%s] VID=0x%04x PID=0x%04x Version=%s Serial=%s",
+			dev.Name, dev.Manufacturer, dev.VendorID, dev.ProductID, FormatBCDVersion(dev.VersionNumber), dev.SerialNumber)
 	}
 }

@@ -18,6 +18,7 @@ typedef struct {
     uint32_t vendorID;
     uint32_t productID;
     uint32_t locationID;
+    uint32_t versionNumber;
 } C_DeviceInfo;
 
 static void setMouseMatchingCriteria(IOHIDManagerRef manager) {
@@ -51,6 +52,7 @@ static void extractDeviceProps(IOHIDDeviceRef dev, C_DeviceInfo *info) {
     CFNumberRef vid = (CFNumberRef)IOHIDDeviceGetProperty(dev, CFSTR(kIOHIDVendorIDKey));
     CFNumberRef pid = (CFNumberRef)IOHIDDeviceGetProperty(dev, CFSTR(kIOHIDProductIDKey));
     CFNumberRef loc = (CFNumberRef)IOHIDDeviceGetProperty(dev, CFSTR(kIOHIDLocationIDKey));
+    CFNumberRef ver = (CFNumberRef)IOHIDDeviceGetProperty(dev, CFSTR(kIOHIDVersionNumberKey));
 
     if (prod) CFStringGetCString(prod, info->name, sizeof(info->name), kCFStringEncodingUTF8);
     if (man) CFStringGetCString(man, info->manufacturer, sizeof(info->manufacturer), kCFStringEncodingUTF8);
@@ -60,6 +62,7 @@ static void extractDeviceProps(IOHIDDeviceRef dev, C_DeviceInfo *info) {
     if (vid) CFNumberGetValue(vid, kCFNumberSInt32Type, &info->vendorID);
     if (pid) CFNumberGetValue(pid, kCFNumberSInt32Type, &info->productID);
     if (loc) CFNumberGetValue(loc, kCFNumberSInt32Type, &info->locationID);
+    if (ver) CFNumberGetValue(ver, kCFNumberSInt32Type, &info->versionNumber);
 }
 */
 import "C"
@@ -71,6 +74,25 @@ import (
 
 	"github.com/alexgorbatchev/mouse-issues/internal/analyzer"
 )
+
+// infoFromC converts extracted device properties; name falls back to fallbackName when empty.
+func infoFromC(c *C.C_DeviceInfo, fallbackName string) Info {
+	name := C.GoString(&c.name[0])
+	if name == "" {
+		name = fallbackName
+	}
+	return Info{
+		ID:            fmt.Sprintf("%04x:%04x:%08x:%s", c.vendorID, c.productID, c.locationID, name),
+		Name:          name,
+		Manufacturer:  C.GoString(&c.manufacturer[0]),
+		VendorID:      uint32(c.vendorID),
+		ProductID:     uint32(c.productID),
+		VersionNumber: uint32(c.versionNumber),
+		SerialNumber:  C.GoString(&c.serial[0]),
+		LocationID:    uint32(c.locationID),
+		Transport:     C.GoString(&c.transport[0]),
+	}
+}
 
 // ListPointingDevices returns all pointing devices connected to the system.
 func ListPointingDevices() ([]Info, error) {
@@ -109,30 +131,11 @@ func ListPointingDevices() ([]Info, error) {
 		var cInfo C.C_DeviceInfo
 		C.extractDeviceProps(dev, &cInfo)
 
-		name := C.GoString(&cInfo.name[0])
-		if name == "" {
-			name = "Pointing Device"
-		}
-		man := C.GoString(&cInfo.manufacturer[0])
-		serial := C.GoString(&cInfo.serial[0])
-		trans := C.GoString(&cInfo.transport[0])
-		key := fmt.Sprintf("%04x:%04x:%08x:%s", cInfo.vendorID, cInfo.productID, cInfo.locationID, name)
-
-		if seen[key] {
+		info := infoFromC(&cInfo, "Pointing Device")
+		if seen[info.ID] {
 			continue
 		}
-		seen[key] = true
-
-		info := Info{
-			ID:           key,
-			Name:         name,
-			Manufacturer: man,
-			VendorID:     uint32(cInfo.vendorID),
-			ProductID:    uint32(cInfo.productID),
-			SerialNumber: serial,
-			LocationID:   uint32(cInfo.locationID),
-			Transport:    trans,
-		}
+		seen[info.ID] = true
 		result = append(result, info)
 	}
 
@@ -172,11 +175,8 @@ func InspectDevice(query string) (*Info, error) {
 		var cInfo C.C_DeviceInfo
 		C.extractDeviceProps(dev, &cInfo)
 
-		name := C.GoString(&cInfo.name[0])
-		man := C.GoString(&cInfo.manufacturer[0])
-		serial := C.GoString(&cInfo.serial[0])
-		trans := C.GoString(&cInfo.transport[0])
-		id := fmt.Sprintf("%04x:%04x:%08x:%s", cInfo.vendorID, cInfo.productID, cInfo.locationID, name)
+		info := infoFromC(&cInfo, "")
+		name, man, id := info.Name, info.Manufacturer, info.ID
 
 		matches := false
 		if query == "" {
@@ -192,16 +192,7 @@ func InspectDevice(query string) (*Info, error) {
 
 		if matches {
 			matchedDev = dev
-			matchedInfo = Info{
-				ID:           id,
-				Name:         name,
-				Manufacturer: man,
-				VendorID:     uint32(cInfo.vendorID),
-				ProductID:    uint32(cInfo.productID),
-				SerialNumber: serial,
-				LocationID:   uint32(cInfo.locationID),
-				Transport:    trans,
-			}
+			matchedInfo = info
 			break
 		}
 	}
@@ -210,15 +201,7 @@ func InspectDevice(query string) (*Info, error) {
 		matchedDev = C.IOHIDDeviceRef(devices[0])
 		var cInfo C.C_DeviceInfo
 		C.extractDeviceProps(matchedDev, &cInfo)
-		matchedInfo = Info{
-			Name:         C.GoString(&cInfo.name[0]),
-			Manufacturer: C.GoString(&cInfo.manufacturer[0]),
-			VendorID:     uint32(cInfo.vendorID),
-			ProductID:    uint32(cInfo.productID),
-			SerialNumber: C.GoString(&cInfo.serial[0]),
-			LocationID:   uint32(cInfo.locationID),
-			Transport:    C.GoString(&cInfo.transport[0]),
-		}
+		matchedInfo = infoFromC(&cInfo, "")
 	}
 
 	if matchedDev == 0 {

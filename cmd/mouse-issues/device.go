@@ -54,8 +54,8 @@ func newDeviceListCommand() *cobra.Command {
 					fmt.Fprintf(out, "  error: %s\n", devErr.Error())
 				} else {
 					for _, dev := range devices {
-						fmt.Fprintf(out, "  - name: %s\n    manufacturer: %s\n    vid: 0x%04x\n    pid: 0x%04x\n    serial: %s\n    transport: %s\n",
-							dev.Name, dev.Manufacturer, dev.VendorID, dev.ProductID, dev.SerialNumber, dev.Transport)
+						fmt.Fprintf(out, "  - name: %s\n    manufacturer: %s\n    vid: 0x%04x\n    pid: 0x%04x\n    version: %s\n    serial: %s\n    transport: %s\n",
+							dev.Name, dev.Manufacturer, dev.VendorID, dev.ProductID, device.FormatBCDVersion(dev.VersionNumber), dev.SerialNumber, dev.Transport)
 					}
 				}
 				return nil
@@ -99,6 +99,7 @@ func newDeviceListCommand() *cobra.Command {
 					fmt.Fprintf(out, "      Manufacturer : %s\n", dev.Manufacturer)
 					fmt.Fprintf(out, "      Vendor ID    : 0x%04x\n", dev.VendorID)
 					fmt.Fprintf(out, "      Product ID   : 0x%04x\n", dev.ProductID)
+					fmt.Fprintf(out, "      Version      : %s\n", device.FormatBCDVersion(dev.VersionNumber))
 					if dev.SerialNumber != "" {
 						fmt.Fprintf(out, "      Serial Number: %s\n", dev.SerialNumber)
 					}
@@ -139,8 +140,8 @@ func newDeviceInspectCommand() *cobra.Command {
 			isAgent := agent.IsAgentMode()
 
 			if isAgent {
-				fmt.Fprintf(out, "device:\n  name: %s\n  manufacturer: %s\n  vid: 0x%04x\n  pid: 0x%04x\n  serial: %s\n",
-					dev.Name, dev.Manufacturer, dev.VendorID, dev.ProductID, dev.SerialNumber)
+				fmt.Fprintf(out, "device:\n  name: %s\n  manufacturer: %s\n  vid: 0x%04x\n  pid: 0x%04x\n  version: %s\n  serial: %s\n",
+					dev.Name, dev.Manufacturer, dev.VendorID, dev.ProductID, device.FormatBCDVersion(dev.VersionNumber), dev.SerialNumber)
 				fmt.Fprintln(out, "elements:")
 				for _, e := range dev.Elements {
 					if !showAll && e.UsagePage != 1 && e.UsagePage != 9 && e.UsagePage != 0xc {
@@ -157,6 +158,7 @@ func newDeviceInspectCommand() *cobra.Command {
 			fmt.Fprintf(out, "  Manufacturer : %s\n", dev.Manufacturer)
 			fmt.Fprintf(out, "  Vendor ID    : 0x%04x\n", dev.VendorID)
 			fmt.Fprintf(out, "  Product ID   : 0x%04x\n", dev.ProductID)
+			fmt.Fprintf(out, "  Version      : %s\n", device.FormatBCDVersion(dev.VersionNumber))
 			if dev.SerialNumber != "" {
 				fmt.Fprintf(out, "  Serial Number: %s\n", dev.SerialNumber)
 			}

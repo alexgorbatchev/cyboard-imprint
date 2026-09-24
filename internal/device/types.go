@@ -1,6 +1,10 @@
 package device
 
-import "github.com/alexgorbatchev/mouse-issues/internal/analyzer"
+import (
+	"fmt"
+
+	"github.com/alexgorbatchev/mouse-issues/internal/analyzer"
+)
 
 // ElementInfo describes a single HID report descriptor element.
 type ElementInfo struct {
@@ -17,16 +21,24 @@ type ElementInfo struct {
 
 // Info holds metadata for a connected pointing device.
 type Info struct {
-	ID           string        `json:"id"`
-	Name         string        `json:"name"`
-	Manufacturer string        `json:"manufacturer"`
-	VendorID     uint32        `json:"vendor_id"`
-	ProductID    uint32        `json:"product_id"`
-	SerialNumber string        `json:"serial_number"`
-	LocationID   uint32        `json:"location_id"`
-	Transport    string        `json:"transport"`
-	Elements     []ElementInfo `json:"elements,omitempty"`
+	ID            string        `json:"id"`
+	Name          string        `json:"name"`
+	Manufacturer  string        `json:"manufacturer"`
+	VendorID      uint32        `json:"vendor_id"`
+	ProductID     uint32        `json:"product_id"`
+	VersionNumber uint32        `json:"version_number"` // USB bcdDevice (QMK usb.device_version)
+	SerialNumber  string        `json:"serial_number"`
+	LocationID    uint32        `json:"location_id"`
+	Transport     string        `json:"transport"`
+	Elements      []ElementInfo `json:"elements,omitempty"`
 }
 
 // Display is an alias to analyzer.Display for convenience.
 type Display = analyzer.Display
+
+// FormatBCDVersion renders a USB bcdDevice value as major.minor.revision, the encoding
+// QMK uses for usb.device_version (e.g. "0.2.2" is stored as 0x0022).
+func FormatBCDVersion(bcd uint32) string {
+	major := (bcd>>12&0xF)*10 + (bcd >> 8 & 0xF)
+	return fmt.Sprintf("%d.%d.%d", major, bcd>>4&0xF, bcd&0xF)
+}
