@@ -157,6 +157,53 @@ func TestCursorAnalyzeCommand_RecordedSession(t *testing.T) {
 	}
 }
 
+func TestCursorAnalyzeCommand_SessionHeader(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "header-session.ndjson")
+	f, err := os.Create(logPath)
+	if err != nil {
+		t.Fatalf("creating test file: %v", err)
+	}
+
+	t0 := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
+	rec := recorder.NewWriter(f)
+	_ = rec.WriteSession(recorder.SessionHeader{
+		StartedAt: t0,
+		Mode:      "both",
+		Threshold: 40,
+		Displays: []analyzer.Display{
+			{ID: 2, Bounds: analyzer.Rect{Width: 2560, Height: 1440}, IsMain: true},
+			{ID: 3, Bounds: analyzer.Rect{X: 511, Y: 1440, Width: 1440, Height: 900}},
+		},
+	})
+	_ = rec.WriteEvent(analyzer.Event{ID: 1, Timestamp: t0, Source: analyzer.SourceHID, DeviceName: "Imprint (Patched)", DeviceVID: 0x4359, DeviceVersion: 0x0022, DeltaX: 3})
+	_ = rec.WriteEvent(analyzer.Event{ID: 2, Timestamp: t0, Source: analyzer.SourceCG, CursorX: 1000, CursorY: 1300, DeltaX: 3})
+	// Jumps onto display 3 with a delta that cannot explain the move.
+	_ = rec.WriteEvent(analyzer.Event{ID: 3, Timestamp: t0.Add(time.Millisecond), Source: analyzer.SourceCG, CursorX: 800, CursorY: 2000, DeltaX: 3})
+	f.Close()
+
+	t.Setenv("AGENT", "0")
+	out, err := executeCommand("cursor", "analyze", logPath)
+	if err != nil {
+		t.Fatalf("cursor analyze failed: %v", err)
+	}
+	for _, want := range []string{"Recorded At    : 2026-09-24T12:00:00Z", "Imprint (Patched)", "firmware 0.2.2", "display_cross", "Cursor Teleports (1 occurrences, 1 across displays)"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected %q in human output, got: %s", want, out)
+		}
+	}
+
+	t.Setenv("AGENT", "1")
+	agentOut, err := executeCommand("cursor", "analyze", logPath)
+	if err != nil {
+		t.Fatalf("cursor analyze (agent) failed: %v", err)
+	}
+	for _, want := range []string{"hid_events: 1", "cg_events: 2", "displays_recorded: 2", "device: Imprint (Patched) | vid: 0x4359 | pid: 0x0000 | version: 0.2.2 | reports: 1"} {
+		if !strings.Contains(agentOut, want) {
+			t.Errorf("expected %q in agent output, got: %s", want, agentOut)
+		}
+	}
+}
+
 func TestCursorTimelineCommand(t *testing.T) {
 	tmpDir := t.TempDir()
 	logPath := filepath.Join(tmpDir, "timeline-session.ndjson")

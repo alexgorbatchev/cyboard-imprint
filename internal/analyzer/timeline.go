@@ -1,6 +1,7 @@
 package analyzer
 
 import (
+	"fmt"
 	"sort"
 	"time"
 )
@@ -124,4 +125,33 @@ func AnalyzeSpikes(events []Event, threshold int64) DirectionalSpikes {
 	}
 
 	return result
+}
+
+// DeviceSeen summarizes the HID reports one device contributed to a recording.
+type DeviceSeen struct {
+	Name    string `json:"name"`
+	VID     uint32 `json:"vid"`
+	PID     uint32 `json:"pid"`
+	Version uint32 `json:"version"` // USB bcdDevice
+	Reports int    `json:"reports"`
+}
+
+// DevicesSeen lists the devices that produced HID reports, in order of first appearance.
+func DevicesSeen(events []Event) []DeviceSeen {
+	var seen []DeviceSeen
+	index := make(map[string]int)
+	for _, ev := range events {
+		if ev.Source != SourceHID {
+			continue
+		}
+		key := fmt.Sprintf("%s:%04x", hidDeviceKey(ev), ev.DeviceVersion)
+		i, ok := index[key]
+		if !ok {
+			i = len(seen)
+			index[key] = i
+			seen = append(seen, DeviceSeen{Name: ev.DeviceName, VID: ev.DeviceVID, PID: ev.DevicePID, Version: ev.DeviceVersion})
+		}
+		seen[i].Reports++
+	}
+	return seen
 }

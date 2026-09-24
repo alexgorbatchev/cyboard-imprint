@@ -37,6 +37,21 @@ func newCursorCommand() *cobra.Command {
 	return cursorCmd
 }
 
+// readRecording parses a recorded NDJSON session file.
+func readRecording(path string) (recorder.Recording, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return recorder.Recording{}, fmt.Errorf("opening file %q: %w", path, err)
+	}
+	defer f.Close()
+
+	rec, err := recorder.Read(f)
+	if err != nil {
+		return recorder.Recording{}, fmt.Errorf("reading recorded events from %q: %w", path, err)
+	}
+	return rec, nil
+}
+
 func newCursorMonitorCommand() *cobra.Command {
 	var (
 		modeStr       string
@@ -163,6 +178,17 @@ func newCursorRecordCommand() *cobra.Command {
 
 			rec := recorder.NewWriter(f)
 			displays, _ := device.ListDisplays()
+			devices, _ := device.ListPointingDevices()
+			if err := rec.WriteSession(recorder.SessionHeader{
+				StartedAt:    time.Now(),
+				Mode:         modeStr,
+				DeviceFilter: deviceFilter,
+				Threshold:    threshold,
+				Displays:     displays,
+				Devices:      devices,
+			}); err != nil {
+				return fmt.Errorf("writing %q: %w", outputPath, err)
+			}
 			az := analyzer.New(analyzer.Config{
 				JumpThreshold: threshold,
 				Displays:      displays,
@@ -196,19 +222,32 @@ func newCursorRecordCommand() *cobra.Command {
 
 			eventCount := 0
 			anomalyCount := 0
+			var writeErr error
+			keepFirst := func(err error) {
+				if writeErr == nil {
+					writeErr = err
+				}
+			}
 
 			err = session.Start(ctx, func(ev analyzer.Event) {
 				eventCount++
-				_ = rec.WriteEvent(ev)
+				if err := rec.WriteEvent(ev); err != nil {
+					keepFirst(err)
+				}
 				anomalies := az.Process(ev)
 				for _, an := range anomalies {
 					anomalyCount++
-					_ = rec.WriteAnomaly(an)
+					if err := rec.WriteAnomaly(an); err != nil {
+						keepFirst(err)
+					}
 				}
 			})
 
 			if err != nil && ctx.Err() == nil {
 				return fmt.Errorf("record session: %w", err)
+			}
+			if writeErr != nil {
+				return fmt.Errorf("writing %q: %w", outputPath, writeErr)
 			}
 
 			if isAgent {
@@ -245,18 +284,17 @@ func newCursorAnalyzeCommand() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			filePath := args[0]
-			f, err := os.Open(filePath)
+			recording, err := readRecording(filePath)
 			if err != nil {
-				return fmt.Errorf("opening file %q: %w", filePath, err)
+				return err
 			}
-			defer f.Close()
+			events := recording.Events
 
-			events, err := recorder.ReadEvents(f)
-			if err != nil {
-				return fmt.Errorf("reading recorded events from %q: %w", filePath, err)
+			// Display crossings are judged against the layout the session was recorded with.
+			var displays []analyzer.Display
+			if recording.Session != nil {
+				displays = recording.Session.Displays
 			}
-
-			displays, _ := device.ListDisplays()
 			az := analyzer.New(analyzer.Config{
 				JumpThreshold: threshold,
 				Displays:      displays,
@@ -270,8 +308,20 @@ func newCursorAnalyzeCommand() *cobra.Command {
 			out := cmd.OutOrStdout()
 			isAgent := agent.IsAgentMode()
 
+			devicesSeen := analyzer.DevicesSeen(events)
+
 			if isAgent {
+				if recording.Session != nil {
+					fmt.Fprintf(out, "recorded_at: %s\n", recording.Session.StartedAt.Format(time.RFC3339))
+				}
+				fmt.Fprintf(out, "displays_recorded: %d\n", len(displays))
+				for _, d := range devicesSeen {
+					fmt.Fprintf(out, "device: %s | vid: 0x%04x | pid: 0x%04x | version: %s | reports: %d\n",
+						d.Name, d.VID, d.PID, device.FormatBCDVersion(d.Version), d.Reports)
+				}
 				fmt.Fprintf(out, "events_total: %d\n", summary.TotalEvents)
+				fmt.Fprintf(out, "hid_events: %d\n", summary.HIDEvents)
+				fmt.Fprintf(out, "cg_events: %d\n", summary.CGEvents)
 				fmt.Fprintf(out, "duration_sec: %.2f\n", summary.Duration.Seconds())
 				fmt.Fprintf(out, "sample_rate_hz: %.1f\n", summary.AvgHz)
 				fmt.Fprintf(out, "anomalies_total: %d\n", summary.AnomalyCount)
@@ -298,7 +348,15 @@ func newCursorAnalyzeCommand() *cobra.Command {
 
 			// Human Mode
 			fmt.Fprintf(out, "Analysis Report for: %s\n", filePath)
-			fmt.Fprintf(out, "  Total Events   : %d\n", summary.TotalEvents)
+			if recording.Session != nil {
+				fmt.Fprintf(out, "  Recorded At    : %s\n", recording.Session.StartedAt.Format(time.RFC3339))
+			}
+			fmt.Fprintf(out, "  Displays       : %d recorded\n", len(displays))
+			for _, d := range devicesSeen {
+				fmt.Fprintf(out, "  HID Device     : %s [0x%04x:0x%04x] firmware %s (%d reports)\n",
+					d.Name, d.VID, d.PID, device.FormatBCDVersion(d.Version), d.Reports)
+			}
+			fmt.Fprintf(out, "  Total Events   : %d (HID: %d, CG: %d)\n", summary.TotalEvents, summary.HIDEvents, summary.CGEvents)
 			fmt.Fprintf(out, "  Duration       : %s (avg %.1f Hz)\n", summary.Duration.Round(time.Millisecond), summary.AvgHz)
 			fmt.Fprintf(out, "  Delta X Range  : min=%d, max=%d, mean=%.2f, stddev=%.2f\n",
 				summary.XStats.Min, summary.XStats.Max, summary.XStats.Mean, summary.XStats.StdDev)
@@ -307,10 +365,7 @@ func newCursorAnalyzeCommand() *cobra.Command {
 
 			fmt.Fprintln(out, "\nDelta Magnitude Distribution:")
 			for _, b := range summary.Buckets {
-				pct := float64(0)
-				if summary.TotalEvents > 0 {
-					pct = float64(b.Count) / float64(summary.TotalEvents) * 100
-				}
+				pct := bucketPercent(summary, b)
 				fmt.Fprintf(out, "  * [%3d - %-5d] : %6d (%5.1f%%)\n", b.Min, b.Max, b.Count, pct)
 			}
 
@@ -362,16 +417,11 @@ func newCursorTimelineCommand() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			filePath := args[0]
-			f, err := os.Open(filePath)
+			recording, err := readRecording(filePath)
 			if err != nil {
-				return fmt.Errorf("opening file %q: %w", filePath, err)
+				return err
 			}
-			defer f.Close()
-
-			events, err := recorder.ReadEvents(f)
-			if err != nil {
-				return fmt.Errorf("reading recorded events: %w", err)
-			}
+			events := recording.Events
 
 			buckets := analyzer.Timeline(events, threshold)
 			out := cmd.OutOrStdout()
@@ -415,16 +465,11 @@ func newCursorSpikesCommand() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			filePath := args[0]
-			f, err := os.Open(filePath)
+			recording, err := readRecording(filePath)
 			if err != nil {
-				return fmt.Errorf("opening file %q: %w", filePath, err)
+				return err
 			}
-			defer f.Close()
-
-			events, err := recorder.ReadEvents(f)
-			if err != nil {
-				return fmt.Errorf("reading recorded events: %w", err)
-			}
+			events := recording.Events
 
 			spikes := analyzer.AnalyzeSpikes(events, threshold)
 			out := cmd.OutOrStdout()
@@ -590,10 +635,7 @@ func newCursorDiagnoseCommand() *cobra.Command {
 
 			fmt.Fprintln(out, "\nHistogram (Magnitude of Movement Counts):")
 			for _, b := range summary.Buckets {
-				pct := float64(0)
-				if summary.TotalEvents > 0 {
-					pct = float64(b.Count) / float64(summary.TotalEvents) * 100
-				}
+				pct := bucketPercent(summary, b)
 				fmt.Fprintf(out, "  * [%3d - %-5d counts] : %6d (%5.1f%%)\n", b.Min, b.Max, b.Count, pct)
 			}
 
@@ -612,4 +654,16 @@ func newCursorDiagnoseCommand() *cobra.Command {
 	cmd.Flags().Int64VarP(&threshold, "threshold", "t", 50, "Jump delta threshold")
 
 	return cmd
+}
+
+// bucketPercent is the share of a histogram bucket within the stream the histogram was built from.
+func bucketPercent(s analyzer.Summary, b analyzer.HistogramBucket) float64 {
+	total := s.HIDEvents
+	if total == 0 {
+		total = s.CGEvents
+	}
+	if total == 0 {
+		return 0
+	}
+	return float64(b.Count) / float64(total) * 100
 }

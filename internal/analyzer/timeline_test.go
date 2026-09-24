@@ -72,3 +72,28 @@ func TestAnalyzeSpikes(t *testing.T) {
 		t.Errorf("expected 4 samples, got %d", len(spikes.Samples))
 	}
 }
+
+func TestDevicesSeen(t *testing.T) {
+	t0 := time.Date(2026, 9, 24, 10, 0, 0, 0, time.UTC)
+	imprint := Event{Timestamp: t0, Source: SourceHID, DeviceName: "Imprint (Patched)", DeviceVID: 0x4359, DeviceVersion: 0x0022, DeltaX: 1}
+	events := []Event{
+		imprint,
+		{Timestamp: t0, Source: SourceCG, CursorX: 10, CursorY: 10},
+		imprint,
+		{Timestamp: t0, Source: SourceHID, DeviceName: "Other Mouse", DeviceVID: 0x046d, DeltaY: 1},
+	}
+
+	got := DevicesSeen(events)
+	want := []DeviceSeen{
+		{Name: "Imprint (Patched)", VID: 0x4359, Version: 0x0022, Reports: 2},
+		{Name: "Other Mouse", VID: 0x046d, Reports: 1},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("DevicesSeen = %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("DevicesSeen[%d] = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}
