@@ -99,6 +99,9 @@ func TestDeviceInspectCommand_Default(t *testing.T) {
 	if !strings.Contains(out, "Version      :") {
 		t.Errorf("expected device Version line in output, got: %s", out)
 	}
+	if strings.Contains(out, "[NOTE] X/Y Motion") && !strings.Contains(out, "too-high DPI") {
+		t.Errorf("expected the 8-bit note to explain report saturation, got: %s", out)
+	}
 }
 
 func TestCursorAnalyzeCommand_RecordedSession(t *testing.T) {

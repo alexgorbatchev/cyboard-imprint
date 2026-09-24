@@ -198,9 +198,9 @@ func newDeviceInspectCommand() *cobra.Command {
 			if has8BitDeltas {
 				fmt.Fprintln(out, "")
 				fmt.Fprintln(out, "[NOTE] X/Y Motion Descriptors are 8-bit signed (-127 to +127):")
-				fmt.Fprintln(out, "  If QMK/Vial pointing device firmware casts coordinates incorrectly or reads")
-				fmt.Fprintln(out, "  negative deltas as unsigned integers, -1 (0xFF) will be treated as +255,")
-				fmt.Fprintln(out, "  causing the cursor to suddenly teleport across screens during gentle motion.")
+				fmt.Fprintln(out, "  One report carries at most 127 counts per axis and QMK clamps larger motion")
+				fmt.Fprintln(out, "  to that limit. Deltas pinned at +/-127 in a capture (report_saturation) mean")
+				fmt.Fprintln(out, "  the sensor produces more counts per report than fit, typically a too-high DPI.")
 			}
 
 			return nil
