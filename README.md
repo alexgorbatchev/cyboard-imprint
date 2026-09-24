@@ -1,14 +1,15 @@
-`mouse-issues` is a diagnostic tool for tracking down mouse and keyboard-based trackball cursor teleportation, sudden delta jumps, and multi-monitor leap glitches on macOS. It includes a patched Vial-QMK firmware fork ([`alexgorbatchev/vial-qmk`](https://github.com/alexgorbatchev/vial-qmk)) resolving the Cyboard Imprint trackball sensitivity wrap-around defect and split CPI synchronization bug.
+`mouse-issues` is a diagnostic tool for tracking down mouse and keyboard-trackball cursor teleportation, sudden delta jumps, and multi-monitor leaps on macOS. It separates what the sensor reported from what the cursor did, so a jump can be pinned on the firmware, the sensor, or the operating system. It includes a patched Vial-QMK firmware fork ([`alexgorbatchev/vial-qmk`](https://github.com/alexgorbatchev/vial-qmk)) that fixes the Cyboard Imprint trackball DPI wrap-around defect.
 
 # What It Does
 
-- **Discovers Pointing Devices**: Enumerate USB and Bluetooth pointing hardware, identifying vendor IDs, product IDs, serial numbers, and report element structures.
-- **Inspects HID Descriptors**: Checks device logical bounds (e.g. 8-bit `-127` to `127`) to detect sign-extension and unsigned casting defects in firmware.
-- **Streams Real-Time Motion**: Captures hardware deltas via `IOHIDManager` and WindowServer coordinates via `CGEventTap` simultaneously.
-- **Detects Teleport Anomalies**: Flags integer boundary overflows (`255`, `-128`, `127`, `65535`), direction flips, high-frequency bursts, and multi-display boundary leaps.
+- **Discovers Pointing Devices**: Enumerates USB and Bluetooth pointing hardware with vendor IDs, product IDs, firmware versions, serial numbers, and report element structures.
+- **Inspects HID Descriptors**: Shows each motion element's logical bounds (e.g. 8-bit `-127` to `127`), which is the most motion one report can carry.
+- **Streams Real-Time Motion**: Captures raw sensor reports via `IOHIDManager` and accelerated cursor positions via `CGEventTap` simultaneously, each stamped with its hardware event time.
+- **Detects Anomalies**: Flags report saturation (`127`, `-127`, `-128`), impossible integer values (`255`, `65535`, `256`), large raw deltas, direction flips, report bursts, and cursor teleports the reported motion cannot explain, within one display or across displays.
+- **Records Self-Describing Sessions**: Writes NDJSON recordings that start with the display layout and the connected devices with their firmware versions.
 - **Analyzes Timelines & Spikes**: Provides 1-second activity timelines (`cursor timeline`) and directional spike vectors (`cursor spikes`).
 - **Validates Firmware Binaries**: Inspects and validates UF2 firmware binaries (`firmware inspect`) for Raspberry Pi RP2040 family architecture and flash boundaries.
-- **Patches Cyboard Trackball Firmware**: Fixes the 4-bit unsigned underflow defect, implements a clamped 100–1,000 DPI range, and repairs slave-half CPI sync over split interconnects.
+- **Patches Cyboard Trackball Firmware**: Fixes the 4-bit DPI underflow, clamps DPI to 100–1,000, uses sniping speeds the sensor can represent, and resets out-of-range EEPROM values on boot.
 
 # How It Works
 
@@ -19,11 +20,14 @@
 
 # How it Really Works
 
-- Intercepts raw unaccelerated USB HID input packets directly from device drivers before macOS pointer acceleration curves are applied.
-- Taps CoreGraphics WindowServer events to correlate raw hardware deltas against accelerated screen cursor positions and multi-monitor boundaries.
-- Compares incoming deltas against known firmware integer overflow signatures: 8-bit unsigned cast of negative movement (`255` for `-1`), SPI bus register read faults (`-128`, `0x80`), and 16-bit sign slips (`65535`, `-32768`).
-- Emits clean formatted terminal tables in human mode, or token-conservative key-value streams when `AGENT=1` is set.
-- Writes structured NDJSON stream files on `record` and reads them back on `analyze` with zero external service dependencies.
+- Reads raw HID input reports before macOS pointer acceleration, one event per report, grouped by the report's own timestamp so X and Y always come from the same report.
+- Taps CoreGraphics WindowServer events for the accelerated cursor position and its delta; HID reports and cursor events are analyzed as two separate streams and never compared with each other.
+- Treats a cursor event as a teleport only when the cursor moved more than 20 points further than that event's delta explains; ordinary movement across a display edge is not an anomaly.
+- Reads deltas pinned at the report limit (`127`, `-127`, `-128` for 8-bit reports) as saturation: the sensor produced more counts than one report carries, which points at a too-high DPI rather than a firmware cast bug.
+- Starts every recording with a `session` line holding the start time, capture mode, device filter, threshold, display layout, and connected devices; `cursor analyze` judges display crossings against that recorded layout, so a recording without it gets no display analysis.
+- Stamps every HID event with the device name, VID/PID, and USB firmware version (bcdDevice), so `cursor analyze` shows which firmware build produced a capture.
+- Emits formatted plain text in human mode, or token-conservative key-value lines when `AGENT=1` is set.
+- Runs entirely locally: nothing is sent to external services.
 
 # Prerequisites
 
@@ -65,18 +69,20 @@ Sample Output:
 ```
 Active Displays:
   Display 0 (ID: 2) [MAIN]: bounds=(0, 0) size=(2560 x 1440)
-  Display 1 (ID: 3): bounds=(511, 1440) size=(1440 x 900)
+  Display 1 (ID: 3): bounds=(551, 1440) size=(1440 x 900)
 
 Connected Pointing Devices:
   [1] Apple Internal Keyboard / Trackpad
       Manufacturer : Apple
       Vendor ID    : 0x0000
       Product ID   : 0x0000
+      Version      : unknown
       Transport    : FIFO
   [2] Imprint [KEYBOARD TRACKBALL]
       Manufacturer : Cyboard
       Vendor ID    : 0x4359
       Product ID   : 0x0000
+      Version      : 0.2.0
       Serial Number: vial:f64c2b3c
       Transport    : USB
 ```
@@ -153,38 +159,34 @@ Global flags:
 
 # Flashing Cyboard Imprint Firmware
 
-The `./firmware` directory contains our fork of Cyboard's Vial-QMK firmware ([`alexgorbatchev/vial-qmk`](https://github.com/alexgorbatchev/vial-qmk)) with fixes for the trackball sensitivity wrap-around defect and split CPI propagation.
+The `./firmware` directory contains our fork of Cyboard's Vial-QMK firmware ([`alexgorbatchev/vial-qmk`](https://github.com/alexgorbatchev/vial-qmk), branch `cyboard`) with fixes for the trackball DPI wrap-around defect.
 
 ### What the Patched Firmware Fixes
 
-1. **Repairs Split Interconnect CPI Sync (New)**:
-   - In upstream Cyboard firmware, `charybdis_config_dual_sync_handler` copied memory structs between halves but never called `maybe_update_pointing_device_cpi()`.
-   - If the trackball was on the slave half (or plugged into the opposite half), tapping `User 0` or `User 1` on the master half never commanded the slave optical sensor driver to change its hardware CPI.
-   - The fix explicitly applies CPI updates on the slave half immediately upon receiving sync packets.
-
-2. **Auto-Clamps Stale EEPROM on Boot (New)**:
-   - Flashing a `.uf2` binary does not wipe the RP2040 emulated EEPROM sector in flash.
-   - If your keyboard previously stored Step 15 before flashing, it reloaded Step 15 ($15 \times 100 + 100 = 1,600 \text{ DPI}$) on boot.
-   - The fix checks stored values on boot and automatically clamps any step $> 9$ down to **Step 3 (400 DPI)**.
-
-3. **Verifiable USB Device Identifier (New)**:
-   - Bumps USB `device_version` to `0.2.1` and sets USB product name to **`Imprint (Patched)`**.
-   - Running `mouse-issues device list` or `just inspect` immediately confirms whether the keyboard is running the patched code.
-
-4. **Clamps DPI Range (100 to 1,000 DPI)**:
-   - Replaces the unconstrained 400–3,400 DPI scale with a fine-grained 100–1,000 DPI range in 100 DPI steps.
-   - **Floor**: Decreasing past 100 DPI stops firmly at 100 DPI (`User 1` / `User 9`) instead of looping to 3,400 DPI.
-   - **Ceiling**: Increasing past 1,000 DPI stops firmly at 1,000 DPI (`User 0` / `User 8`) instead of wrapping to 100 DPI.
-
+1. **Stops the DPI Wrap-Around**:
+   - Upstream stores the DPI step in a 4-bit field and decrements it without a floor, so pressing DPI down at the lowest step wrapped to step 15 (3,400 DPI).
+   - DPI down now stops at the lowest step and DPI up stops at the highest.
+2. **Clamps DPI Range (100 to 1,000 DPI)**:
+   - Replaces the 400–3,400 DPI scale with 100–1,000 DPI in 100 DPI steps; the default is 400 DPI.
+3. **Uses Representable Sniping Speeds**:
+   - Sniping steps are 100, 200, 300, and 400 DPI. The PMW3360 sets CPI in 100-count increments, so finer steps would be rounded down.
+4. **Resets Stale EEPROM Values on Boot**:
+   - Flashing a `.uf2` does not wipe the RP2040's emulated EEPROM. A stored DPI step above the new maximum is reset to 400 DPI on boot.
 5. **Isolates Drag-Scroll Buffers**:
-   - Replaces shared static variables with separate left and right scroll accumulators, eliminating buffer cross-talk between trackballs.
+   - Each trackball has its own scroll accumulator, so drag-scrolling on both halves at once no longer mixes their motion.
+6. **Names the Trackball Keycodes in Vial**:
+   - The 5-key bottom row layouts show the trackball keys as `L_DPI_INC`, `L_DPI_DEC`, `L_DragScroll_TOG`, and so on, instead of `User 0`–`User 15`.
+7. **Identifies Itself Over USB**:
+   - The keyboard reports the product name **`Imprint (Patched)`** and firmware version `0.2.2`, which `mouse-issues device list` shows.
+
+First-boot defaults (left trackball points, right trackball drag-scrolls) apply only when the EEPROM is empty; flashing keeps the drag-scroll settings already saved on the keyboard.
 
 ### Prebuilt Firmware Binary
 
 Your matching `.uf2` binary is located at:
 `./firmware/bin/cyboard-imprint-uf2/cyboard_imprint_imprint_number_row_5key_bottom_row_vial.uf2`
 
-*(Compiled for: `number_row` + `5key_bottom_row` with clamped 100–1,000 DPI range, slave CPI synchronization, left pointing default, right drag-scrolling default, and isolated scroll buffers).*
+*(Compiled for: `number_row` + `5key_bottom_row`, firmware version `0.2.2`.)*
 
 ### Step-by-Step Flashing Guide
 
@@ -202,9 +204,11 @@ Your matching `.uf2` binary is located at:
    - Double-tap the reset button on the back of the right half.
    - Drag and drop the exact same `.uf2` file into the `RPI-RP2` drive.
    - Reconnect the two halves using your interconnect cable.
-4. **Tune Sensitivity**:
-   - The left trackball boots at 400 DPI (Step 3).
-   - Tap `User 1` three times to reach the 100 DPI floor for maximum precision, or tap `User 0` to step up by 100 DPI increments.
+4. **Verify the Running Firmware**:
+   - Run `mouse-issues device list` and confirm the trackball shows as `Imprint (Patched)` with `Version      : 0.2.2`.
+5. **Tune Sensitivity**:
+   - Press `L_DPI_DEC` (shown as `User 1` in Vial on unpatched firmware) to step the left trackball down by 100 DPI, or `L_DPI_INC` (`User 0`) to step it up.
+   - From 400 DPI, three presses of `L_DPI_DEC` reach the 100 DPI floor.
 
 ### Can You Brick the Keyboard?
 
