@@ -2,6 +2,7 @@ package recorder
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -104,8 +105,55 @@ func TestRecordAndReadSession(t *testing.T) {
 	}
 }
 
-func TestReadRejectsMalformedLine(t *testing.T) {
-	if _, err := Read(strings.NewReader("{\"type\":\"event\"}\nnot json\n")); err == nil {
-		t.Fatal("expected an error for a malformed line")
+func TestReadRejectsInvalidLines(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{"malformed json", "{\"type\":\"event\"}\nnot json\n"},
+		{"bare event without type", "{\"id\":1,\"timestamp\":\"2026-09-24T12:00:00Z\",\"source\":\"hid\",\"delta_x\":3}\n"},
+		{"unknown type", "{\"type\":\"frame\"}\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := Read(strings.NewReader(tt.input)); err == nil {
+				t.Fatalf("expected an error for %q", tt.input)
+			}
+		})
+	}
+}
+
+func TestReadSkipsBlankLines(t *testing.T) {
+	rec, err := Read(strings.NewReader("\n{\"type\":\"event\",\"event\":{\"id\":1,\"delta_x\":3}}\n\n"))
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+	if len(rec.Events) != 1 {
+		t.Fatalf("expected 1 event, got %+v", rec.Events)
+	}
+}
+
+type failingIO struct{}
+
+func (failingIO) Write([]byte) (int, error) { return 0, errors.New("disk full") }
+func (failingIO) Read([]byte) (int, error)  { return 0, errors.New("device gone") }
+
+func TestWriterReportsWriteErrors(t *testing.T) {
+	w := NewWriter(failingIO{})
+	writes := map[string]func() error{
+		"session": func() error { return w.WriteSession(SessionHeader{}) },
+		"event":   func() error { return w.WriteEvent(analyzer.Event{}) },
+		"anomaly": func() error { return w.WriteAnomaly(analyzer.Anomaly{}) },
+	}
+	for name, write := range writes {
+		if err := write(); err == nil || !strings.Contains(err.Error(), "disk full") {
+			t.Errorf("%s: expected wrapped write error, got %v", name, err)
+		}
+	}
+}
+
+func TestReadReportsStreamErrors(t *testing.T) {
+	if _, err := Read(failingIO{}); err == nil || !strings.Contains(err.Error(), "device gone") {
+		t.Fatalf("expected wrapped read error, got %v", err)
 	}
 }

@@ -85,6 +85,8 @@ func (w *Writer) WriteAnomaly(a analyzer.Anomaly) error {
 func Read(r io.Reader) (Recording, error) {
 	var rec Recording
 	scanner := bufio.NewScanner(r)
+	// The session line lists every connected device, which can exceed the default 64 KiB token size.
+	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
 
 	lineNum := 0
 	for scanner.Scan() {
@@ -96,20 +98,17 @@ func Read(r io.Reader) (Recording, error) {
 
 		var line RecordLine
 		if err := json.Unmarshal(text, &line); err != nil {
-			// Also try parsing directly as Event
-			var ev analyzer.Event
-			if err2 := json.Unmarshal(text, &ev); err2 == nil && !ev.Timestamp.IsZero() {
-				rec.Events = append(rec.Events, ev)
-				continue
-			}
 			return Recording{}, fmt.Errorf("decoding record on line %d: %w", lineNum, err)
 		}
 
 		switch {
-		case line.Session != nil:
+		case line.Type == "session" && line.Session != nil:
 			rec.Session = line.Session
-		case line.Event != nil:
+		case line.Type == "event" && line.Event != nil:
 			rec.Events = append(rec.Events, *line.Event)
+		case line.Type == "anomaly":
+		default:
+			return Recording{}, fmt.Errorf("line %d: unsupported record type %q", lineNum, line.Type)
 		}
 	}
 
