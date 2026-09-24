@@ -85,6 +85,7 @@ func TestDetectAnomalies_BoundarySignatures(t *testing.T) {
 		{name: "16-bit unsigned 65535", deltaX: 65535, wantKind: AnomalyIntegerOverflow},
 		{name: "9-bit slip 256", deltaY: -256, wantKind: AnomalyIntegerOverflow},
 		{name: "8-bit report max 127", deltaX: 127, wantKind: AnomalySaturation},
+		{name: "8-bit descriptor min -127", deltaX: -127, wantKind: AnomalySaturation},
 		{name: "8-bit report min -128", deltaY: -128, wantKind: AnomalySaturation},
 		{name: "16-bit report max 32767", deltaX: 32767, wantKind: AnomalySaturation},
 		{name: "16-bit report min -32768", deltaY: -32768, wantKind: AnomalySaturation},

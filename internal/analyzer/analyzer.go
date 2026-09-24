@@ -180,8 +180,10 @@ func checkBurstRate(curr Event) *Anomaly {
 
 // checkBoundary separates two different boundary signatures. Overflow values cannot come
 // from a correctly typed signed report. Saturation values are the limits QMK clamps motion to
-// (MOUSE_REPORT_XY_MIN/MAX: int8 by default, int16 with MOUSE_EXTENDED_REPORT); they mean the
-// sensor produced more counts in one report interval than the report can carry.
+// (MOUSE_REPORT_XY_MIN/MAX: int8 by default, int16 with MOUSE_EXTENDED_REPORT) plus -127, the
+// logical minimum QMK declares in its 8-bit mouse descriptor, which macOS reports for clamped
+// negative motion. They mean the sensor produced more counts in one report interval than the
+// report can carry.
 func (a *Analyzer) checkBoundary(curr Event) *Anomaly {
 	dx, dy := curr.DeltaX, curr.DeltaY
 	either := func(v int64) bool { return dx == v || dy == v }
@@ -196,8 +198,8 @@ func (a *Analyzer) checkBoundary(curr Event) *Anomaly {
 		overflow = "256 (9-bit byte alignment / shifting slip)"
 	case either(127):
 		saturation = "127 (8-bit report maximum)"
-	case either(-128):
-		saturation = "-128 (8-bit report minimum)"
+	case either(-127) || either(-128):
+		saturation = "-127/-128 (8-bit report minimum)"
 	case either(32767):
 		saturation = "32767 (16-bit report maximum)"
 	case either(-32768):
