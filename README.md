@@ -1,4 +1,4 @@
-`cyboard-imprint` is a diagnostics suite, firmware build pipeline, and hardware workbench for the Cyboard Imprint split mechanical keyboard and dual trackballs on macOS. It isolates raw sensor reports from accelerated cursor movement to identify cursor jumps, bounds issues, and firmware anomalies, and houses the patched Vial-QMK firmware fork ([`alexgorbatchev/vial-qmk`](https://github.com/alexgorbatchev/vial-qmk)) featuring DPI step underflow fixes and visual LED progress indicators.
+`cyboard-imprint` is a diagnostics suite, firmware build pipeline, and hardware workbench for the [Cyboard Imprint](https://cyboard.digital/products/imprint) split mechanical keyboard and dual trackballs on macOS. It isolates raw sensor reports from accelerated cursor movement to identify cursor jumps, bounds issues, and firmware anomalies, and houses the patched Vial-QMK firmware fork ([`alexgorbatchev/vial-qmk`](https://github.com/alexgorbatchev/vial-qmk)) featuring DPI step underflow fixes and visual LED progress indicators.
 
 # What It Does
 
@@ -159,7 +159,7 @@ Global flags:
 
 # Flashing Cyboard Imprint Firmware
 
-The `./firmware` directory contains our fork of Cyboard's Vial-QMK firmware ([`alexgorbatchev/vial-qmk`](https://github.com/alexgorbatchev/vial-qmk), branch `cyboard`) with fixes for the trackball DPI wrap-around defect.
+The `./firmware` directory contains our fork of Cyboard's Vial-QMK firmware ([`alexgorbatchev/vial-qmk`](https://github.com/alexgorbatchev/vial-qmk), branch `cyboard`) for the [Cyboard Imprint](https://cyboard.digital/products/imprint) with fixes for the trackball DPI wrap-around defect.
 
 ### What the Patched Firmware Fixes
 
