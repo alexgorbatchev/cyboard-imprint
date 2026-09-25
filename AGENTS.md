@@ -50,6 +50,7 @@ The user is experiencing severe mouse cursor teleportation across multiple monit
 ## Capture Evidence
 - Recorded captures (`trackball.ndjson`, `trackball_post_flash.ndjson`, `live_test.ndjson`) show no true teleports: cursor displacement always matches the CG delta within about 2 points. Jumps come from large raw HID deltas (up to the 8-bit report limit of `-127`) amplified by macOS pointer acceleration, which points at DPI.
 - Those captures predate hardware timestamps, per-report HID grouping, and session headers, so their burst counts and intervals are artifacts; only new recordings carry device versions and display layouts.
+- Post-patch captures on 0.2.3 (`post_023_2.ndjson` and `post_023_step0.ndjson`) revealed optical "sensor spinout": bursts of 500+ raw counts over 30–35 ms strictly in the negative X direction (left) during gentle thumb wiggling. At 100 DPI, 500 counts in 35 ms equals 5.5 inches of trackball surface travel (more than a full 360° rotation of a 34mm ball, or ~2,000 RPM), which is physically impossible for thumb motion. This was traced to the unpatched factory ROM in the PMW3360 optical sensor, which lacks the official PixArt SROM firmware patch that fixes DSP cross-correlation overflow.
 - The keyboard reported `Imprint` version `0.2.0` (unpatched firmware) on 2026-09-24; confirm the flashed build with `mouse-issues device list` before trusting a capture.
 
 ## Firmware Fixes
@@ -61,14 +62,15 @@ All firmware fixes live in [`alexgorbatchev/vial-qmk`](https://github.com/alexgo
 4. **Drag-scroll buffers** — `pointing_device_task_charybdis`: left and right trackballs have separate scroll accumulators (they only interfered when both halves drag-scrolled at once).
 5. **Legacy cleanup** — the stale single-hand `g_charybdis_config` and the `CHARYBDIS_CONFIG_SYNC` path are removed; `charybdis_get_pointer_default_dpi(bool is_left)` and `charybdis_get_pointer_sniping_dpi(bool is_left)` read the live per-side config. The no-sync `housekeeping_task_kb` no longer calls `housekeeping_task_user` itself (`quantum/keyboard.c` already does).
 6. **Vial keycode names** — the 5key bottom row `vial.json` files carry `customKeycodes`, so Vial shows `L_DPI_INC`/`L_DPI_DEC`/... instead of `User 0`–`User 15`.
-7. **USB identity** — product name `Imprint (Patched)` (`keyboards/cyboard/imprint/info.json`) and `device_version` `0.2.5` (`keyboards/cyboard/info.json`); bump the version whenever a new build is flashed so captures stay attributable.
+7. **USB identity** — product name `Imprint (Patched)` (`keyboards/cyboard/imprint/info.json`) and `device_version` `0.2.6` (`keyboards/cyboard/info.json`); bump the version whenever a new build is flashed so captures stay attributable.
 8. **Report clamp** — `tmk_core/protocol/report.h`: `MOUSE_REPORT_XY_MIN` is `INT8_MIN + 1` / `INT16_MIN + 1` (backported from upstream QMK), matching the descriptor logical minimum of -127 / -32767 instead of emitting out-of-range -128 / -32768.
-9. **DPI step LED progress bar** — `keyboards/cyboard/cyboard.c`: `rgb_matrix_indicators_advanced_kb` renders a 1.5-second visual progress bar across number row keys 1 to 5 when cycling pointer DPI with `User 0` (`LEFT_POINTER_DEFAULT_DPI_FORWARD`) or `User 1` (`LEFT_POINTER_DEFAULT_DPI_REVERSE`). The whole 5-key track is framed in 50% intensity white to clearly show boundaries: unfilled keys are 50% white, half-steps (step == 2*k) are light blue (white mixed with blue), and filled steps (step > 2*k) are solid blue. Keys 1–5 revert to active background RGB animations after 1.5 seconds.
+9. **DPI step LED progress bar** — `keyboards/cyboard/cyboard.c`: `rgb_matrix_indicators_advanced_kb` renders a 1.5-second visual progress bar across number row keys when cycling pointer DPI with `User 0`/`User 1` (Left: keys 1 to 5, matrix row 5 cols 4..0; Right: keys 6 to 0, matrix row 12 cols 0..4). The whole 5-key track is framed in 50% intensity white to clearly show boundaries: unfilled keys are 50% white, half-steps (step == 2*k) are light blue (white mixed with blue), and filled steps (step > 2*k) are solid blue. Keys revert to active background RGB animations after 1.5 seconds.
+10. **PMW3360 SROM v0x04 firmware upload** — `drivers/sensors/pmw3360.c`: restores the 4,094-byte SROM binary blob removed in upstream QMK commit `43e82ed` (licensing cleanup) and implements `pmw33xx_srom_get_length()` and `pmw33xx_srom_get_byte()`. On boot, both halves upload the firmware to their PMW3360 sensors, fixing the unpatched factory ROM tracking loss that caused "sensor spinout" (continuous bursts of negative X deltas during rapid direction reversals).
 
 First-boot defaults (`eeconfig_init_kb`: left points, right drag-scrolls) only apply to an empty EEPROM.
 
 ## Prebuilt Binary Location
-- Active binary matching the user's hardware (built by `just firmware-build` from `cyboard` at `96d7725b`, `DEVICE_VER 0x0025`; provenance in the `.json` next to it):
+- Active binary matching the user's hardware (built by `just firmware-build` from `cyboard` at `afd0a6d5`, `DEVICE_VER 0x0026`; provenance in the `.json` next to it):
   `firmware/bin/cyboard-imprint-uf2/cyboard_imprint_imprint_number_row_5key_bottom_row_vial.uf2`
 
 ## Gotchas

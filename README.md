@@ -9,7 +9,7 @@
 - **Records Self-Describing Sessions**: Writes NDJSON recordings that start with the display layout and the connected devices with their firmware versions.
 - **Analyzes Timelines & Spikes**: Provides 1-second activity timelines (`cursor timeline`) and directional spike vectors (`cursor spikes`).
 - **Validates Firmware Binaries**: Inspects and validates UF2 firmware binaries (`firmware inspect`) for Raspberry Pi RP2040 family architecture and flash boundaries.
-- **Patches Cyboard Trackball Firmware**: Fixes the 4-bit DPI underflow, clamps DPI to 100–1,000, provides a 5-key LED progress bar on DPI adjustments, uses sniping speeds the sensor can represent, and resets out-of-range EEPROM values on boot.
+- **Patches Cyboard Trackball Firmware**: Fixes the 4-bit DPI underflow, clamps DPI to 100–1,000, uploads PixArt PMW3360 SROM v0x04 firmware on boot to eliminate optical tracking loss and sensor spinout, provides a symmetrical 5-key LED progress bar on DPI adjustments for both halves, uses sniping speeds the sensor can represent, and resets out-of-range EEPROM values on boot.
 
 # How It Works
 
@@ -179,14 +179,16 @@ The `./firmware` directory contains our fork of Cyboard's Vial-QMK firmware ([`a
 7. **Enters the Bootloader Without a Reset Button**:
    - Holding the top-left key (right half: top-right key) while plugging in USB turns that half's LEDs solid blue and mounts the `RPI-RP2` drive, and keeps the Vial keymap and trackball settings (stock Bootmagic wipes EEPROM). Available on the `number_row` + `5key_bottom_row` layout.
 8. **Identifies Itself Over USB**:
-   - The keyboard reports the product name **`Imprint (Patched)`** and firmware version `0.2.5`, which `mouse-issues device list` shows.
+   - The keyboard reports the product name **`Imprint (Patched)`** and firmware version `0.2.6`, which `mouse-issues device list` shows.
 9. **Keeps Motion Within the Report Descriptor**:
    - Fast negative motion is clamped to `-127`, the minimum the mouse report descriptor declares, instead of `-128` (backported from upstream QMK).
 10. **Shows a DPI Step LED Progress Bar**:
-   - Adjusting DPI with `L_DPI_INC` (`User 0`) or `L_DPI_DEC` (`User 1`) triggers a 1.5-second visual progress bar across number row keys 1 to 5.
+   - Adjusting DPI with `L_DPI_INC` (`User 0`) or `L_DPI_DEC` (`User 1`) triggers a 1.5-second visual progress bar across number row keys (Left half: keys 1 to 5; Right half: keys 6 to 0).
    - The entire 5-key track is framed in 50% intensity white to clearly display boundaries.
    - Filled steps illuminate in solid blue, while odd half-steps (100, 300, 500, 700, 900 DPI) illuminate the leading key in light blue (white blended with blue).
-   - After 1.5 seconds without a DPI keypress, Keys 1–5 seamlessly revert to the active background RGB matrix animation.
+   - After 1.5 seconds without a DPI keypress, keys seamlessly revert to the active background RGB matrix animation.
+11. **Uploads PixArt PMW3360 SROM Firmware**:
+   - Both halves upload the official 4,094-byte SROM v0x04 firmware binary on boot, fixing unpatched factory ROM DSP bugs that caused optical "sensor spinout" (runaway negative delta surges) during rapid direction reversals.
 
 First-boot defaults (left trackball points, right trackball drag-scrolls) apply only when the EEPROM is empty; flashing keeps the drag-scroll settings already saved on the keyboard.
 
@@ -195,7 +197,7 @@ First-boot defaults (left trackball points, right trackball drag-scrolls) apply 
 Your matching `.uf2` binary is located at:
 `./firmware/bin/cyboard-imprint-uf2/cyboard_imprint_imprint_number_row_5key_bottom_row_vial.uf2`
 
-*(Compiled for: `number_row` + `5key_bottom_row`, firmware version `0.2.5`.)*
+*(Compiled for: `number_row` + `5key_bottom_row`, firmware version `0.2.6`.)*
 
 ### Building Firmware from Source
 
