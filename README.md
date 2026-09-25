@@ -197,6 +197,22 @@ Your matching `.uf2` binary is located at:
 
 *(Compiled for: `number_row` + `5key_bottom_row`, firmware version `0.2.5`.)*
 
+### Building Firmware from Source
+
+To bootstrap the firmware tree and compile a fresh `.uf2` binary on a new clone:
+
+1. **Bootstrap Firmware Repository**:
+   ```bash
+   just firmware-bootstrap
+   ```
+   Clones the patched Vial-QMK fork ([`alexgorbatchev/vial-qmk`](https://github.com/alexgorbatchev/vial-qmk), branch `cyboard`) into `./firmware` and initializes the required compilation submodules (`lib/chibios`, `lib/chibios-contrib`, `lib/pico-sdk`, `lib/printf`, `lib/lvgl`).
+
+2. **Build the UF2 Artifact**:
+   ```bash
+   just firmware-build
+   ```
+   Compiles the firmware inside the QMK container, copies the UF2 to `./firmware/bin/cyboard-imprint-uf2/`, and generates the SHA-256 provenance `.json` file required by `just flash`.
+
 ### Step-by-Step Flashing Guide
 
 1. **Backup Existing Keymap**:

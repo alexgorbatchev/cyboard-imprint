@@ -1,6 +1,6 @@
 ---
 created_on: 2026-09-23 13:04
-last_modified: 2026-09-24 17:05
+last_modified: 2026-09-24 17:15
 status: current
 ---
 
@@ -22,9 +22,10 @@ Diagnostics, tooling, and firmware patches for Cyboard Imprint split mechanical 
 - Timeline Analysis: `just timeline trackball.ndjson 30`
 - Directional Spikes: `just spikes trackball.ndjson 30`
 - Inspect UF2 Header: `just inspect-uf2` (defaults to the prebuilt binary)
+- Bootstrap Firmware: `just firmware-bootstrap` -> clones `alexgorbatchev/vial-qmk` (`cyboard` branch) to `./firmware` if missing and updates compilation submodules (`lib/chibios`, `lib/chibios-contrib`, `lib/pico-sdk`, `lib/printf`, `lib/lvgl`)
 - Build Firmware: `just firmware-build [variant]` -> refuses uncommitted changes in `firmware/` (outside `bin/`), builds in the fork's CI container (output in `.tmp/firmware-build.log`), copies the UF2 to `firmware/bin/cyboard-imprint-uf2/`, and writes `<uf2>.json` with the firmware commit, version, SHA-256, and build time
 - Flash Firmware: `just flash <left|right> [file] [variant] [product] [timeout]` -> refuses a UF2 whose file name is not for `variant`, whose embedded USB identity is not `product` (default `Imprint (Patched)`) on 0x4359:0x0000, or whose SHA-256 does not match its `.json` provenance; waits for `/Volumes/RPI-RP2`, copies, verifies the reconnected keyboard reports the UF2's product and version, and appends the attempt to `docs/internal/flash-log.md`
-- Manual firmware build (run in `firmware/`, after `git submodule update --init --recursive --depth 1 lib/chibios lib/chibios-contrib lib/pico-sdk lib/printf lib/lvgl`): `docker run --rm -v "$PWD":/qmk_firmware -w /qmk_firmware ghcr.io/qmk/qmk_cli@sha256:2dc05fc9f32efebd6b05c2b8676ee548358bc7e151e9dbf4dac6b6eed4513b07 bash -c 'git config --global --add safe.directory /qmk_firmware && make cyboard/imprint/imprint_number_row_5key_bottom_row:vial'` (shows compiler output; produces no provenance, so `just flash` refuses its UF2)
+- Manual firmware build (run in `firmware/`, after `just firmware-bootstrap`): `docker run --rm -v "$PWD":/qmk_firmware -w /qmk_firmware ghcr.io/qmk/qmk_cli@sha256:2dc05fc9f32efebd6b05c2b8676ee548358bc7e151e9dbf4dac6b6eed4513b07 bash -c 'git config --global --add safe.directory /qmk_firmware && make cyboard/imprint/imprint_number_row_5key_bottom_row:vial'` (shows compiler output; produces no provenance, so `just flash` refuses its UF2)
 
 ## Setup
 - macOS 12.0+ with Accessibility permission enabled for the terminal (required for CoreGraphics event taps during live capture).

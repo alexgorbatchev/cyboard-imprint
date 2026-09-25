@@ -73,6 +73,25 @@ spikes file="trackball.ndjson" threshold="30": build
 inspect-uf2 file="firmware/bin/cyboard-imprint-uf2/cyboard_imprint_imprint_number_row_5key_bottom_row_vial.uf2": build
     ./bin/mouse-issues firmware inspect {{file}}
 
+# Clone the patched Vial-QMK firmware fork and initialize required build submodules
+firmware-bootstrap:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    repo="https://github.com/alexgorbatchev/vial-qmk.git"
+    branch="cyboard"
+    submodules="lib/chibios lib/chibios-contrib lib/pico-sdk lib/printf lib/lvgl"
+
+    if [[ ! -d firmware ]]; then
+        echo "[INFO] Cloning $repo (branch $branch) into firmware/..."
+        git clone -b "$branch" "$repo" firmware
+    else
+        echo "[INFO] firmware/ already exists at $(git -C firmware rev-parse --short HEAD)"
+    fi
+
+    echo "[INFO] Updating required firmware submodules..."
+    git -C firmware submodule update --init --recursive --depth 1 $submodules
+    echo "[OK] Firmware tree ready in firmware/"
+
 # Build a layout from a clean ./firmware checkout in the CI container and record its provenance
 # (commit, build time, SHA-256, USB identity) in a .json file next to the UF2.
 firmware-build variant="imprint_number_row_5key_bottom_row": build
@@ -83,10 +102,11 @@ firmware-build variant="imprint_number_row_5key_bottom_row": build
     name="cyboard_imprint_{{variant}}_vial.uf2"
     outdir="firmware/bin/cyboard-imprint-uf2"
 
+    [[ -d firmware ]] || fail "firmware/ is missing; run 'just firmware-bootstrap' first"
     # Anything uncommitted outside bin/ could end up in the binary without a commit to point to.
     dirty="$(git -C firmware status --porcelain --ignore-submodules=all -- . ':(exclude)bin')"
     [[ -z "$dirty" ]] || fail "firmware/ has uncommitted changes; commit them first:"$'\n'"$dirty"
-    [[ -f firmware/lib/chibios/os/license/chlicense.h ]] || fail "firmware submodules are missing; run: git -C firmware submodule update --init --recursive --depth 1 lib/chibios lib/chibios-contrib lib/pico-sdk lib/printf lib/lvgl"
+    [[ -f firmware/lib/chibios/os/license/chlicense.h ]] || fail "firmware submodules are missing; run 'just firmware-bootstrap'"
     commit="$(git -C firmware rev-parse HEAD)"
 
     rm -f "firmware/$name"
