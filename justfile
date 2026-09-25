@@ -6,40 +6,40 @@ default:
 
 # Run CLI in human mode (default)
 run *args:
-    go run ./cmd/mouse-issues {{args}}
+    (cd cli && go run ./cmd/mouse-issues {{args}})
 
 # Run CLI in agent-facing mode
 run-ai *args:
-    AGENT=1 go run ./cmd/mouse-issues {{args}}
+    (cd cli && AGENT=1 go run ./cmd/mouse-issues {{args}})
 
 # Run test suite
 test:
-    go test -v ./...
+    (cd cli && go test -v ./...)
 
 # Build binary into bin/
 build:
     mkdir -p bin
-    go build -o bin/mouse-issues ./cmd/mouse-issues
+    (cd cli && go build -o ../bin/mouse-issues ./cmd/mouse-issues)
 
 # Install binary to GOPATH bin directory
 install:
-    go install ./cmd/mouse-issues
+    (cd cli && go install ./cmd/mouse-issues)
 
 # Run static analysis and vet
 lint:
-    go vet ./...
+    (cd cli && go vet ./...)
 
 # Alias for lint
 vet: lint
 
 # Format Go code
 fmt:
-    go fmt ./...
+    (cd cli && go fmt ./...)
 
 # Run static analysis and test suite in sequence
 check:
-    go vet ./...
-    go test -v ./...
+    just vet
+    just test
 
 # Inspect the Imprint trackball HID descriptors
 inspect: build

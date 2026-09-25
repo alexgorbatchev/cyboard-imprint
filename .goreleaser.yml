@@ -4,6 +4,7 @@ project_name: mouse-issues
 
 builds:
   - id: mouse-issues
+    dir: cli
     main: ./cmd/mouse-issues
     binary: mouse-issues
     ldflags:

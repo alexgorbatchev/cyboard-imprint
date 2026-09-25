@@ -1,21 +1,21 @@
 ---
 created_on: 2026-09-23 13:04
-last_modified: 2026-09-24 17:15
+last_modified: 2026-09-24 17:25
 status: current
 ---
 
 # cyboard-imprint
 
-Diagnostics, tooling, and firmware patches for Cyboard Imprint split mechanical keyboards and dual trackballs on macOS (CLI binary: `mouse-issues`).
+Diagnostics, tooling, and firmware patches for Cyboard Imprint split mechanical keyboards and dual trackballs on macOS (CLI binary: `mouse-issues`, located in `cli/`).
 
 ## Commands
-- Build: `just build` (compiles to `bin/mouse-issues`)
+- Build: `just build` (compiles `cli/cmd/mouse-issues` to `bin/mouse-issues`)
 - Run CLI: `just run [args...]`
 - Run CLI (Agent Mode): `just run-ai [args...]` (`AGENT=1`)
-- Test: `just test` (`go test -v ./...`)
-- Lint: `just vet` (`go vet ./...`)
-- Format: `just fmt` (`go fmt ./...`)
-- Check: `just check` (`go vet ./... && go test -v ./...`)
+- Test: `just test` (`cd cli && go test -v ./...`)
+- Lint: `just vet` (`cd cli && go vet ./...`)
+- Format: `just fmt` (`cd cli && go fmt ./...`)
+- Check: `just check` (`just vet && just test`)
 - Live Diagnose: `just diagnose 15s 40` (recipe arguments are positional; `name=value` is passed as a literal string)
 - Live Monitor: `just monitor 40`
 - Offline Analysis: `just analyze trackball.ndjson`
@@ -34,8 +34,8 @@ Diagnostics, tooling, and firmware patches for Cyboard Imprint split mechanical 
 
 ## Conventions
 - Output Formatting: All CLI output must be plain text without emojis or ANSI color codes across all modes.
-- Tree Rendering: Help screens render using `cobra-help-tree`; register every command and subcommand in `techCatalog` (`cmd/mouse-issues/help.go`).
-- Agent Mode (`AGENT=1`): Emit concise key-value pairs or compact bullets via `internal/agent` (`agent.IsAgentMode()`); avoid tables, ASCII boxes, or interactive spinners.
+- Tree Rendering: Help screens render using `cobra-help-tree`; register every command and subcommand in `techCatalog` (`cli/cmd/mouse-issues/help.go`).
+- Agent Mode (`AGENT=1`): Emit concise key-value pairs or compact bullets via `cli/internal/agent` (`agent.IsAgentMode()`); avoid tables, ASCII boxes, or interactive spinners.
 - Hermetic Tests: All Go tests must remain 100% offline and hermetic without requiring macOS hardware or Accessibility permissions (platform-specific code is isolated behind `//go:build darwin` vs `//go:build !darwin`).
 
 ## Problem & Hardware Context
@@ -95,7 +95,7 @@ First-boot defaults (`eeconfig_init_kb`: left points, right drag-scrolls) only a
 - Never: commit compiled binaries (`bin/`), recorded NDJSON captures (`*.ndjson`), or temporary files (`.tmp/`) to git
 
 ## References
-- `cmd/mouse-issues/help.go` - `techCatalog` command tree definitions
-- `internal/capture/` - Darwin vs non-Darwin cursor event capture implementations
+- `cli/cmd/mouse-issues/help.go` - `techCatalog` command tree definitions
+- `cli/internal/capture/` - Darwin vs non-Darwin cursor event capture implementations
 - `justfile` - Available recipes and development workflows
 
