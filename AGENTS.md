@@ -1,12 +1,12 @@
 ---
 created_on: 2026-09-23 13:04
-last_modified: 2026-09-24 16:15
+last_modified: 2026-09-24 17:05
 status: current
 ---
 
-# mouse-issues
+# cyboard-imprint
 
-Diagnostic tool for mouse and trackball cursor teleportation, delta jumps, and multi-monitor boundaries on macOS.
+Diagnostics, tooling, and firmware patches for Cyboard Imprint split mechanical keyboards and dual trackballs on macOS (CLI binary: `mouse-issues`).
 
 ## Commands
 - Build: `just build` (compiles to `bin/mouse-issues`)

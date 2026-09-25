@@ -1,4 +1,4 @@
-`mouse-issues` is a diagnostic tool for tracking down mouse and keyboard-trackball cursor teleportation, sudden delta jumps, and multi-monitor leaps on macOS. It separates what the sensor reported from what the cursor did, so a jump can be pinned on the firmware, the sensor, or the operating system. It includes a patched Vial-QMK firmware fork ([`alexgorbatchev/vial-qmk`](https://github.com/alexgorbatchev/vial-qmk)) that fixes the Cyboard Imprint trackball DPI wrap-around defect.
+`cyboard-imprint` is a diagnostics suite, firmware build pipeline, and hardware workbench for the Cyboard Imprint split mechanical keyboard and dual trackballs on macOS. It isolates raw sensor reports from accelerated cursor movement to identify cursor jumps, bounds issues, and firmware anomalies, and houses the patched Vial-QMK firmware fork ([`alexgorbatchev/vial-qmk`](https://github.com/alexgorbatchev/vial-qmk)) featuring DPI step underflow fixes and visual LED progress indicators.
 
 # What It Does
 
@@ -36,10 +36,10 @@
 
 # Installation
 
-Download the latest prebuilt binary from [GitHub Releases](https://github.com/alexgorbatchev/mouse-issues/releases/latest):
+Download the latest prebuilt binary from [GitHub Releases](https://github.com/alexgorbatchev/cyboard-imprint/releases/latest):
 
 ```bash
-curl -fsSL https://github.com/alexgorbatchev/mouse-issues/releases/latest/download/mouse-issues_0.1.0_darwin_arm64.tar.gz | tar -xz
+curl -fsSL https://github.com/alexgorbatchev/cyboard-imprint/releases/latest/download/mouse-issues_0.1.0_darwin_arm64.tar.gz | tar -xz
 chmod +x mouse-issues
 mv mouse-issues ~/.local/bin/
 ```
