@@ -9,7 +9,7 @@
 - **Records Self-Describing Sessions**: Writes NDJSON recordings that start with the display layout and the connected devices with their firmware versions.
 - **Analyzes Timelines & Spikes**: Provides 1-second activity timelines (`cursor timeline`) and directional spike vectors (`cursor spikes`).
 - **Validates Firmware Binaries**: Inspects and validates UF2 firmware binaries (`firmware inspect`) for Raspberry Pi RP2040 family architecture and flash boundaries.
-- **Patches Cyboard Trackball Firmware**: Fixes the 4-bit DPI underflow, clamps DPI to 100–1,000, uses sniping speeds the sensor can represent, and resets out-of-range EEPROM values on boot.
+- **Patches Cyboard Trackball Firmware**: Fixes the 4-bit DPI underflow, clamps DPI to 100–1,000, provides a 5-key LED progress bar on DPI adjustments, uses sniping speeds the sensor can represent, and resets out-of-range EEPROM values on boot.
 
 # How It Works
 
@@ -179,9 +179,14 @@ The `./firmware` directory contains our fork of Cyboard's Vial-QMK firmware ([`a
 7. **Enters the Bootloader Without a Reset Button**:
    - Holding the top-left key (right half: top-right key) while plugging in USB turns that half's LEDs solid blue and mounts the `RPI-RP2` drive, and keeps the Vial keymap and trackball settings (stock Bootmagic wipes EEPROM). Available on the `number_row` + `5key_bottom_row` layout.
 8. **Identifies Itself Over USB**:
-   - The keyboard reports the product name **`Imprint (Patched)`** and firmware version `0.2.3`, which `mouse-issues device list` shows.
+   - The keyboard reports the product name **`Imprint (Patched)`** and firmware version `0.2.5`, which `mouse-issues device list` shows.
 9. **Keeps Motion Within the Report Descriptor**:
    - Fast negative motion is clamped to `-127`, the minimum the mouse report descriptor declares, instead of `-128` (backported from upstream QMK).
+10. **Shows a DPI Step LED Progress Bar**:
+   - Adjusting DPI with `L_DPI_INC` (`User 0`) or `L_DPI_DEC` (`User 1`) triggers a 1.5-second visual progress bar across number row keys 1 to 5.
+   - The entire 5-key track is framed in 50% intensity white to clearly display boundaries.
+   - Filled steps illuminate in solid blue, while odd half-steps (100, 300, 500, 700, 900 DPI) illuminate the leading key in light blue (white blended with blue).
+   - After 1.5 seconds without a DPI keypress, Keys 1–5 seamlessly revert to the active background RGB matrix animation.
 
 First-boot defaults (left trackball points, right trackball drag-scrolls) apply only when the EEPROM is empty; flashing keeps the drag-scroll settings already saved on the keyboard.
 
@@ -190,7 +195,7 @@ First-boot defaults (left trackball points, right trackball drag-scrolls) apply 
 Your matching `.uf2` binary is located at:
 `./firmware/bin/cyboard-imprint-uf2/cyboard_imprint_imprint_number_row_5key_bottom_row_vial.uf2`
 
-*(Compiled for: `number_row` + `5key_bottom_row`, firmware version `0.2.3`.)*
+*(Compiled for: `number_row` + `5key_bottom_row`, firmware version `0.2.5`.)*
 
 ### Step-by-Step Flashing Guide
 
@@ -206,9 +211,10 @@ Your matching `.uf2` binary is located at:
    - Drag and drop the exact same `.uf2` file into the `RPI-RP2` drive and wait for it to unmount.
    - Unplug USB, reconnect the two halves with the interconnect cable, then plug USB back into the left half.
 4. **Verify the Running Firmware**:
-   - Run `mouse-issues device list` and confirm the trackball shows as `Imprint (Patched)` with `Version      : 0.2.3`.
+   - Run `mouse-issues device list` and confirm the trackball shows as `Imprint (Patched)` with `Version      : 0.2.5`.
 5. **Tune Sensitivity**:
    - Press `L_DPI_DEC` (shown as `User 1` in Vial on unpatched firmware) to step the left trackball down by 100 DPI, or `L_DPI_INC` (`User 0`) to step it up.
+   - Keys 1 to 5 light up with the white and blue progress bar while adjusting.
    - From 400 DPI, three presses of `L_DPI_DEC` reach the 100 DPI floor.
 
 ### Can You Brick the Keyboard?

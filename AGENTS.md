@@ -1,6 +1,6 @@
 ---
 created_on: 2026-09-23 13:04
-last_modified: 2026-09-24 11:25
+last_modified: 2026-09-24 16:15
 status: current
 ---
 
@@ -60,13 +60,14 @@ All firmware fixes live in [`alexgorbatchev/vial-qmk`](https://github.com/alexgo
 4. **Drag-scroll buffers** — `pointing_device_task_charybdis`: left and right trackballs have separate scroll accumulators (they only interfered when both halves drag-scrolled at once).
 5. **Legacy cleanup** — the stale single-hand `g_charybdis_config` and the `CHARYBDIS_CONFIG_SYNC` path are removed; `charybdis_get_pointer_default_dpi(bool is_left)` and `charybdis_get_pointer_sniping_dpi(bool is_left)` read the live per-side config. The no-sync `housekeeping_task_kb` no longer calls `housekeeping_task_user` itself (`quantum/keyboard.c` already does).
 6. **Vial keycode names** — the 5key bottom row `vial.json` files carry `customKeycodes`, so Vial shows `L_DPI_INC`/`L_DPI_DEC`/... instead of `User 0`–`User 15`.
-7. **USB identity** — product name `Imprint (Patched)` (`keyboards/cyboard/imprint/info.json`) and `device_version` `0.2.3` (`keyboards/cyboard/info.json`); bump the version whenever a new build is flashed so captures stay attributable.
+7. **USB identity** — product name `Imprint (Patched)` (`keyboards/cyboard/imprint/info.json`) and `device_version` `0.2.5` (`keyboards/cyboard/info.json`); bump the version whenever a new build is flashed so captures stay attributable.
 8. **Report clamp** — `tmk_core/protocol/report.h`: `MOUSE_REPORT_XY_MIN` is `INT8_MIN + 1` / `INT16_MIN + 1` (backported from upstream QMK), matching the descriptor logical minimum of -127 / -32767 instead of emitting out-of-range -128 / -32768.
+9. **DPI step LED progress bar** — `keyboards/cyboard/cyboard.c`: `rgb_matrix_indicators_advanced_kb` renders a 1.5-second visual progress bar across number row keys 1 to 5 when cycling pointer DPI with `User 0` (`LEFT_POINTER_DEFAULT_DPI_FORWARD`) or `User 1` (`LEFT_POINTER_DEFAULT_DPI_REVERSE`). The whole 5-key track is framed in 50% intensity white to clearly show boundaries: unfilled keys are 50% white, half-steps (step == 2*k) are light blue (white mixed with blue), and filled steps (step > 2*k) are solid blue. Keys 1–5 revert to active background RGB animations after 1.5 seconds.
 
 First-boot defaults (`eeconfig_init_kb`: left points, right drag-scrolls) only apply to an empty EEPROM.
 
 ## Prebuilt Binary Location
-- Active binary matching the user's hardware (built by `just firmware-build` from `cyboard` at `120ad68d`, `DEVICE_VER 0x0023`; provenance in the `.json` next to it):
+- Active binary matching the user's hardware (built by `just firmware-build` from `cyboard` at `96d7725b`, `DEVICE_VER 0x0025`; provenance in the `.json` next to it):
   `firmware/bin/cyboard-imprint-uf2/cyboard_imprint_imprint_number_row_5key_bottom_row_vial.uf2`
 
 ## Gotchas
@@ -83,6 +84,7 @@ First-boot defaults (`eeconfig_init_kb`: left points, right drag-scrolls) only a
 
 ## Boundaries
 - Always: automatically record all new instructions in the most appropriate `AGENTS.md` file immediately upon receipt (check with user if existing instructions conflict)
+- Always: update existing tooling to close diagnostic and analysis gaps instead of writing one-off or ad-hoc scripts
 - Always: any time code is changed such that results from running that code are changed, a test file must be changed as well; 90% code coverage is required (scripts/ folder is excluded from this rule)
 - Always: run `just check` before committing code
 - Always: flash with `just flash <left|right>` so every flash lands in `docs/internal/flash-log.md`; bump `usb.device_version` before building a UF2 that differs from one already flashed
