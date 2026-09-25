@@ -327,3 +327,79 @@ func TestSessionSummary_StatsAndDiagnosis(t *testing.T) {
 		t.Fatalf("expected diagnosis recommendations, got none")
 	}
 }
+
+func TestSessionSummary_SaturationRuns(t *testing.T) {
+	t0 := time.Date(2026, 9, 24, 10, 0, 0, 0, time.UTC)
+	a := New(Config{JumpThreshold: 50})
+
+	// 5 consecutive saturated reports
+	for i := 0; i < 5; i++ {
+		a.Process(Event{
+			Timestamp:  t0.Add(time.Duration(i) * time.Millisecond),
+			Source:     SourceHID,
+			DeviceName: "Imprint",
+			DeltaX:     -127,
+			DeltaY:     127,
+		})
+	}
+	// 1 normal report breaks the run
+	a.Process(Event{
+		Timestamp:  t0.Add(5 * time.Millisecond),
+		Source:     SourceHID,
+		DeviceName: "Imprint",
+		DeltaX:     10,
+		DeltaY:     5,
+	})
+
+	summary := a.Summary()
+	if len(summary.SaturationRuns) != 1 {
+		t.Fatalf("expected 1 saturation run, got %d", len(summary.SaturationRuns))
+	}
+	run := summary.SaturationRuns[0]
+	if run.Count != 5 {
+		t.Errorf("run count = %d, want 5", run.Count)
+	}
+	if run.SumDeltaX != -635 || run.SumDeltaY != 635 {
+		t.Errorf("run sums = (%d, %d), want (-635, 635)", run.SumDeltaX, run.SumDeltaY)
+	}
+	if summary.MaxSaturationRun == nil || summary.MaxSaturationRun.Count != 5 {
+		t.Errorf("max saturation run = %+v, want count 5", summary.MaxSaturationRun)
+	}
+	if !strings.Contains(summary.Diagnoses[0], "longest run: 5 consecutive reports") {
+		t.Errorf("expected diagnosis to mention longest run, got: %s", summary.Diagnoses[0])
+	}
+}
+
+func TestDetectAnomalies_VelocityLeaps(t *testing.T) {
+	t0 := time.Date(2026, 9, 24, 10, 0, 0, 0, time.UTC)
+	a := New(Config{JumpThreshold: 50, LeapVelocityThreshold: 50000.0, Displays: testDisplays})
+
+	// Gentle starting position
+	a.Process(Event{Timestamp: t0, Source: SourceCG, CursorX: 1000, CursorY: 1000, DeltaX: 2, DeltaY: 2})
+
+	// Extreme velocity leap: 200px movement in 1ms (200,000 px/s), even though CG delta matches moved px
+	anomalies := a.Process(Event{
+		Timestamp: t0.Add(1 * time.Millisecond),
+		Source:    SourceCG,
+		CursorX:   800,
+		CursorY:   1000,
+		DeltaX:    -200,
+		DeltaY:    0,
+	})
+
+	if !hasKind(anomalies, AnomalyCursorLeap) {
+		t.Fatalf("expected AnomalyCursorLeap on 200px/1ms leap, got %+v", anomalies)
+	}
+
+	summary := a.Summary()
+	if len(summary.CursorLeaps) != 1 {
+		t.Fatalf("expected 1 recorded cursor leap, got %d", len(summary.CursorLeaps))
+	}
+	if summary.CursorLeaps[0].DistancePx != 200 {
+		t.Errorf("leap distance = %f, want 200", summary.CursorLeaps[0].DistancePx)
+	}
+	if summary.MaxCursorLeap == nil || summary.MaxCursorLeap.DistancePx != 200 {
+		t.Errorf("max cursor leap = %+v, want 200", summary.MaxCursorLeap)
+	}
+}
+

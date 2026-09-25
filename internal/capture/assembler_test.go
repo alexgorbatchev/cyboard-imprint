@@ -98,6 +98,41 @@ func TestReportAssembler_SkipsReportsWithoutMotion(t *testing.T) {
 	}
 }
 
+func TestReportAssembler_DeduplicatesSameTimestamp(t *testing.T) {
+	var r reportAssembler
+	imprintHandleA := hidDevice{handle: 10, name: "Imprint (Patched)", vid: 0x4359, pid: 0x0000}
+	imprintHandleB := hidDevice{handle: 20, name: "Imprint (Patched)", vid: 0x4359, pid: 0x0000}
+
+	// Handle A reports delta at t=1000
+	r.add(imprintHandleA, usageX, 5, 1000)
+	r.add(imprintHandleA, usageY, -2, 1000)
+
+	// Handle B reports exact same delta at t=1000
+	r.add(imprintHandleB, usageX, 5, 1000)
+	r.add(imprintHandleB, usageY, -2, 1000)
+
+	// New timestamp triggers completion
+	got, done := r.add(imprintHandleA, usageX, 3, 2000)
+	if !done {
+		t.Fatal("expected report completion on timestamp advance")
+	}
+	if got.dx != 5 || got.dy != -2 {
+		t.Fatalf("got = %+v, want dx=5, dy=-2", got)
+	}
+
+	// Advancing Handle B at t=2000 should NOT emit duplicate of t=1000
+	_, doneB := r.add(imprintHandleB, usageX, 3, 2000)
+	if doneB {
+		t.Fatal("Handle B duplicate at t=1000 should have been dropped")
+	}
+
+	// Flush should only have 1 pending report for t=2000 (Handle A), Handle B deduplicated
+	flushed := r.flush()
+	if len(flushed) != 1 {
+		t.Fatalf("expected 1 flushed report, got %d: %+v", len(flushed), flushed)
+	}
+}
+
 func TestHIDReport_Event(t *testing.T) {
 	c := monoClock{wall: time.Date(2026, 9, 24, 10, 0, 0, 0, time.UTC), nanos: 0}
 	rep := hidReport{dev: imprint, tsNanos: 1_500_000, dx: 5, dy: -2, wheel: 1, pan: -1}

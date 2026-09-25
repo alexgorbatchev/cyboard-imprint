@@ -84,6 +84,7 @@ First-boot defaults (`eeconfig_init_kb`: left points, right drag-scrolls) only a
 
 ## Boundaries
 - Always: automatically record all new instructions in the most appropriate `AGENTS.md` file immediately upon receipt (check with user if existing instructions conflict)
+- Always: apply all firmware changes symmetrically to both left and right sides of the keyboard
 - Always: update existing tooling to close diagnostic and analysis gaps instead of writing one-off or ad-hoc scripts
 - Always: any time code is changed such that results from running that code are changed, a test file must be changed as well; 90% code coverage is required (scripts/ folder is excluded from this rule)
 - Always: run `just check` before committing code

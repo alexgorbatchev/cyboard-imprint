@@ -1,8 +1,10 @@
 package analyzer
 
 import (
+	"cmp"
 	"fmt"
 	"math"
+	"slices"
 	"time"
 )
 
@@ -47,6 +49,14 @@ func (d *deltaStream) add(e Event) {
 	}
 }
 
+type activeSaturation struct {
+	count     int
+	startTime time.Time
+	lastTime  time.Time
+	sumX      int64
+	sumY      int64
+}
+
 // Analyzer inspects cursor events in real time or from recorded logs.
 //
 // HID reports (raw sensor counts) and CG events (post-acceleration cursor positions) are
@@ -65,6 +75,12 @@ type Analyzer struct {
 	anomalyCount     int64
 	anomalyBreakdown map[AnomalyKind]int
 
+	activeSat        map[string]*activeSaturation
+	saturationRuns   []SaturationRun
+	maxSaturationRun *SaturationRun
+	cursorLeaps      []CursorLeap
+	maxCursorLeap    *CursorLeap
+
 	hid deltaStream
 	cg  deltaStream
 }
@@ -74,10 +90,14 @@ func New(cfg Config) *Analyzer {
 	if cfg.JumpThreshold <= 0 {
 		cfg.JumpThreshold = 50
 	}
+	if cfg.LeapVelocityThreshold <= 0 {
+		cfg.LeapVelocityThreshold = 50000.0
+	}
 	return &Analyzer{
 		config:           cfg,
 		prevHID:          make(map[string]Event),
 		anomalyBreakdown: make(map[AnomalyKind]int),
+		activeSat:        make(map[string]*activeSaturation),
 	}
 }
 
@@ -125,8 +145,9 @@ func (a *Analyzer) processHID(curr Event) (Event, []Anomaly) {
 		curr.IntervalMs = intervalMs(prev, curr)
 	}
 
-	if an := a.checkBoundary(curr); an != nil {
-		anomalies = append(anomalies, *an)
+	anBoundary := a.checkBoundary(curr)
+	if anBoundary != nil {
+		anomalies = append(anomalies, *anBoundary)
 	}
 	if an := a.checkJump(curr); an != nil {
 		anomalies = append(anomalies, *an)
@@ -138,6 +159,44 @@ func (a *Analyzer) processHID(curr Event) (Event, []Anomaly) {
 	}
 	if an := checkBurstRate(curr); an != nil {
 		anomalies = append(anomalies, *an)
+	}
+
+	// Track saturation runs
+	if anBoundary != nil && anBoundary.Kind == AnomalySaturation {
+		act := a.activeSat[key]
+		if act == nil {
+			act = &activeSaturation{
+				count:     1,
+				startTime: curr.Timestamp,
+				lastTime:  curr.Timestamp,
+				sumX:      curr.DeltaX,
+				sumY:      curr.DeltaY,
+			}
+			a.activeSat[key] = act
+		} else {
+			act.count++
+			act.lastTime = curr.Timestamp
+			act.sumX += curr.DeltaX
+			act.sumY += curr.DeltaY
+		}
+	} else {
+		if act := a.activeSat[key]; act != nil {
+			if act.count >= 2 {
+				run := SaturationRun{
+					Count:     act.count,
+					Duration:  act.lastTime.Sub(act.startTime),
+					SumDeltaX: act.sumX,
+					SumDeltaY: act.sumY,
+					StartTime: act.startTime,
+					EndTime:   act.lastTime,
+				}
+				a.saturationRuns = append(a.saturationRuns, run)
+				if a.maxSaturationRun == nil || run.Count > a.maxSaturationRun.Count {
+					a.maxSaturationRun = &run
+				}
+			}
+			delete(a.activeSat, key)
+		}
 	}
 
 	a.hid.add(curr)
@@ -270,30 +329,65 @@ func (a *Analyzer) displayAt(x, y float64) *Display {
 }
 
 // checkCursorLeap flags a cursor that moved further than its own event delta explains,
-// which is what a real teleport looks like. Crossing a display edge with a matching
-// delta is ordinary movement and is not flagged.
+// or that leaped at extreme velocity across frames.
 func (a *Analyzer) checkCursorLeap(prev Event, curr Event) *Anomaly {
 	moved := math.Hypot(curr.CursorX-prev.CursorX, curr.CursorY-prev.CursorY)
 	explained := math.Hypot(float64(curr.DeltaX), float64(curr.DeltaY))
 	unexplained := moved - explained
-	if unexplained <= leapTolerancePx {
+	dt := curr.Timestamp.Sub(prev.Timestamp)
+	var velocity float64
+	if dt > 0 {
+		velocity = moved / dt.Seconds()
+	}
+
+	isUnexplainedLeap := unexplained > leapTolerancePx
+	isVelocityLeap := moved >= 80 && velocity >= a.config.LeapVelocityThreshold
+
+	if !isUnexplainedLeap && !isVelocityLeap {
 		return nil
 	}
 
 	details := map[string]string{
 		"moved_px":       fmt.Sprintf("%.1f", moved),
 		"unexplained_px": fmt.Sprintf("%.1f", unexplained),
+		"velocity_px_s":  fmt.Sprintf("%.0f", velocity),
 	}
 	prevDisp := a.displayAt(prev.CursorX, prev.CursorY)
 	currDisp := a.displayAt(curr.CursorX, curr.CursorY)
-	if prevDisp != nil && currDisp != nil && prevDisp.ID != currDisp.ID {
+	crossesDisplay := prevDisp != nil && currDisp != nil && prevDisp.ID != currDisp.ID
+
+	leap := CursorLeap{
+		DistancePx:       moved,
+		Duration:         dt,
+		VelocityPxPerSec: velocity,
+		FromX:            prev.CursorX,
+		FromY:            prev.CursorY,
+		ToX:              curr.CursorX,
+		ToY:              curr.CursorY,
+		DeltaX:           curr.DeltaX,
+		DeltaY:           curr.DeltaY,
+		CrossesDisplay:   crossesDisplay,
+		Timestamp:        curr.Timestamp,
+	}
+	if prevDisp != nil {
+		leap.FromDisplay = prevDisp.ID
+	}
+	if currDisp != nil {
+		leap.ToDisplay = currDisp.ID
+	}
+	a.cursorLeaps = append(a.cursorLeaps, leap)
+	if a.maxCursorLeap == nil || moved > a.maxCursorLeap.DistancePx {
+		a.maxCursorLeap = &leap
+	}
+
+	if crossesDisplay {
 		details["from_display"] = fmt.Sprintf("%d", prevDisp.ID)
 		details["to_display"] = fmt.Sprintf("%d", currDisp.ID)
 		return &Anomaly{
 			Kind:        AnomalyDisplayCross,
 			Severity:    "high",
 			Title:       "Multi-Monitor Display Boundary Leap",
-			Description: fmt.Sprintf("Cursor jumped from Display %d to Display %d by %.0f px with only delta (%d, %d)", prevDisp.ID, currDisp.ID, moved, curr.DeltaX, curr.DeltaY),
+			Description: fmt.Sprintf("Cursor jumped from Display %d to Display %d by %.0f px in %v (%.0f px/s) with delta (%d, %d)", prevDisp.ID, currDisp.ID, moved, dt.Round(time.Millisecond), velocity, curr.DeltaX, curr.DeltaY),
 			Event:       curr,
 			Details:     details,
 		}
@@ -302,7 +396,7 @@ func (a *Analyzer) checkCursorLeap(prev Event, curr Event) *Anomaly {
 		Kind:        AnomalyCursorLeap,
 		Severity:    "high",
 		Title:       "Cursor Leap",
-		Description: fmt.Sprintf("Cursor moved %.0f px with only delta (%d, %d)", moved, curr.DeltaX, curr.DeltaY),
+		Description: fmt.Sprintf("Cursor moved %.0f px in %v (%.0f px/s) with delta (%d, %d)", moved, dt.Round(time.Millisecond), velocity, curr.DeltaX, curr.DeltaY),
 		Event:       curr,
 		Details:     details,
 	}
@@ -314,6 +408,28 @@ func (a *Analyzer) Summary() Summary {
 	if duration < 0 {
 		duration = 0
 	}
+
+	// Flush any active saturation run that reached the end of the recording
+	for key, act := range a.activeSat {
+		if act.count >= 2 {
+			run := SaturationRun{
+				Count:     act.count,
+				Duration:  act.lastTime.Sub(act.startTime),
+				SumDeltaX: act.sumX,
+				SumDeltaY: act.sumY,
+				StartTime: act.startTime,
+				EndTime:   act.lastTime,
+			}
+			a.saturationRuns = append(a.saturationRuns, run)
+			if a.maxSaturationRun == nil || run.Count > a.maxSaturationRun.Count {
+				a.maxSaturationRun = &run
+			}
+		}
+		delete(a.activeSat, key)
+	}
+	slices.SortFunc(a.saturationRuns, func(x, y SaturationRun) int {
+		return cmp.Compare(y.Count, x.Count)
+	})
 
 	// Raw HID reports carry the sensor signal; CG deltas are only used when no HID stream was captured.
 	stream := &a.hid
@@ -352,6 +468,10 @@ func (a *Analyzer) Summary() Summary {
 		YStats:           yStats,
 		Buckets:          buckets,
 		Diagnoses:        diagnoses,
+		SaturationRuns:   a.saturationRuns,
+		MaxSaturationRun: a.maxSaturationRun,
+		CursorLeaps:      a.cursorLeaps,
+		MaxCursorLeap:    a.maxCursorLeap,
 	}
 }
 
@@ -385,10 +505,17 @@ func (a *Analyzer) generateDiagnoses() []string {
 	count := func(kind AnomalyKind) int { return a.anomalyBreakdown[kind] }
 
 	if n := count(AnomalySaturation); n > 0 {
-		diagnoses = append(diagnoses, fmt.Sprintf(
-			"Report Saturation (%d occurrences): HID deltas hit the report limit, so the firmware clamped motion that did not fit in one report. The sensor is producing more counts per report interval than gentle trackball movement should; check the active DPI step first.",
-			n,
-		))
+		if a.maxSaturationRun != nil && a.maxSaturationRun.Count >= 2 {
+			diagnoses = append(diagnoses, fmt.Sprintf(
+				"Report Saturation (%d occurrences, longest run: %d consecutive reports over %s with delta sum X=%d, Y=%d): HID deltas hit the report limit, so the firmware clamped motion that did not fit in one report. The sensor is producing more counts per report interval than gentle trackball movement should; check the active DPI step first.",
+				n, a.maxSaturationRun.Count, a.maxSaturationRun.Duration.Round(time.Millisecond), a.maxSaturationRun.SumDeltaX, a.maxSaturationRun.SumDeltaY,
+			))
+		} else {
+			diagnoses = append(diagnoses, fmt.Sprintf(
+				"Report Saturation (%d occurrences): HID deltas hit the report limit, so the firmware clamped motion that did not fit in one report. The sensor is producing more counts per report interval than gentle trackball movement should; check the active DPI step first.",
+				n,
+			))
+		}
 	}
 
 	if n := count(AnomalyIntegerOverflow); n > 0 {
@@ -413,10 +540,17 @@ func (a *Analyzer) generateDiagnoses() []string {
 	}
 
 	if leaps, crossings := count(AnomalyCursorLeap), count(AnomalyDisplayCross); leaps+crossings > 0 {
-		diagnoses = append(diagnoses, fmt.Sprintf(
-			"Cursor Teleports (%d occurrences, %d across displays): The cursor moved further than the event delta explains. The jump happened after the input device, in WindowServer or software that warps the cursor.",
-			leaps+crossings, crossings,
-		))
+		if a.maxCursorLeap != nil {
+			diagnoses = append(diagnoses, fmt.Sprintf(
+				"Cursor Teleports (%d occurrences, %d across displays, peak leap: %.0f px at %.0f px/s): The cursor moved further than the event delta explains or experienced extreme velocity leaps across frames. The jump happened after the input device, in WindowServer or software that warps the cursor.",
+				leaps+crossings, crossings, a.maxCursorLeap.DistancePx, a.maxCursorLeap.VelocityPxPerSec,
+			))
+		} else {
+			diagnoses = append(diagnoses, fmt.Sprintf(
+				"Cursor Teleports (%d occurrences, %d across displays): The cursor moved further than the event delta explains. The jump happened after the input device, in WindowServer or software that warps the cursor.",
+				leaps+crossings, crossings,
+			))
+		}
 	}
 
 	if n := count(AnomalyBurstRate); n > 0 {

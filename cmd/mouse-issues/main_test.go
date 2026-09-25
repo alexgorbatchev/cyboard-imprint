@@ -198,7 +198,7 @@ func TestCursorAnalyzeCommand_SessionHeader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cursor analyze failed: %v", err)
 	}
-	for _, want := range []string{"Recorded At    : 2026-09-24T12:00:00Z", "Imprint (Patched)", "firmware 0.2.2", "display_cross", "Cursor Teleports (1 occurrences, 1 across displays)"} {
+	for _, want := range []string{"Recorded At    : 2026-09-24T12:00:00Z", "Imprint (Patched)", "firmware 0.2.2", "display_cross", "Cursor Teleports (1 occurrences, 1 across displays", "Cursor Teleport Leaps:"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("expected %q in human output, got: %s", want, out)
 		}
@@ -209,10 +209,43 @@ func TestCursorAnalyzeCommand_SessionHeader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cursor analyze (agent) failed: %v", err)
 	}
-	for _, want := range []string{"hid_events: 1", "cg_events: 2", "displays_recorded: 2", "device: Imprint (Patched) | vid: 0x4359 | pid: 0x0000 | version: 0.2.2 | reports: 1"} {
+	for _, want := range []string{"hid_events: 1", "cg_events: 2", "displays_recorded: 2", "device: Imprint (Patched) | vid: 0x4359 | pid: 0x0000 | version: 0.2.2 | reports: 1", "cursor_leaps:"} {
 		if !strings.Contains(agentOut, want) {
 			t.Errorf("expected %q in agent output, got: %s", want, agentOut)
 		}
+	}
+}
+
+func TestCursorAnalyzeCommand_SaturationRuns(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "saturation-session.ndjson")
+	f, err := os.Create(logPath)
+	if err != nil {
+		t.Fatalf("creating test file: %v", err)
+	}
+
+	t0 := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
+	rec := recorder.NewWriter(f)
+	_ = rec.WriteEvent(analyzer.Event{ID: 1, Timestamp: t0, Source: analyzer.SourceHID, DeviceName: "Imprint", DeltaX: -127, DeltaY: 127})
+	_ = rec.WriteEvent(analyzer.Event{ID: 2, Timestamp: t0.Add(time.Millisecond), Source: analyzer.SourceHID, DeviceName: "Imprint", DeltaX: -127, DeltaY: 127})
+	_ = rec.WriteEvent(analyzer.Event{ID: 3, Timestamp: t0.Add(2 * time.Millisecond), Source: analyzer.SourceHID, DeviceName: "Imprint", DeltaX: 5, DeltaY: 2})
+	f.Close()
+
+	t.Setenv("AGENT", "0")
+	out, err := executeCommand("cursor", "analyze", logPath)
+	if err != nil {
+		t.Fatalf("cursor analyze failed: %v", err)
+	}
+	if !strings.Contains(out, "Report Saturation Runs:") {
+		t.Errorf("expected 'Report Saturation Runs:' in human output, got: %s", out)
+	}
+
+	t.Setenv("AGENT", "1")
+	agentOut, err := executeCommand("cursor", "analyze", logPath)
+	if err != nil {
+		t.Fatalf("cursor analyze (agent) failed: %v", err)
+	}
+	if !strings.Contains(agentOut, "saturation_runs:") {
+		t.Errorf("expected 'saturation_runs:' in agent output, got: %s", agentOut)
 	}
 }
 

@@ -107,9 +107,9 @@ static IOHIDManagerRef createAndOpenHIDManager() {
     IOHIDManagerRef manager = IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDOptionsTypeNone);
     if (!manager) return NULL;
 
-    CFMutableArrayRef matchArray = CFArrayCreateMutable(kCFAllocatorDefault, 2, &kCFTypeArrayCallBacks);
-    int usages[2] = {2, 1}; // Mouse, Pointer
-    for (int i = 0; i < 2; i++) {
+    CFMutableArrayRef matchArray = CFArrayCreateMutable(kCFAllocatorDefault, 1, &kCFTypeArrayCallBacks);
+    int usages[1] = {2}; // Generic Desktop / Mouse (2)
+    for (int i = 0; i < 1; i++) {
         CFMutableDictionaryRef dict = CFDictionaryCreateMutable(kCFAllocatorDefault, 0,
             &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
         int page = 1;

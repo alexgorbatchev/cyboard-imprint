@@ -331,6 +331,20 @@ func newCursorAnalyzeCommand() *cobra.Command {
 				for _, d := range summary.Diagnoses {
 					fmt.Fprintf(out, "  - %s\n", d)
 				}
+				if len(summary.SaturationRuns) > 0 {
+					fmt.Fprintln(out, "saturation_runs:")
+					for _, r := range summary.SaturationRuns {
+						fmt.Fprintf(out, "  - count: %d | duration_ms: %d | sum_dx: %d | sum_dy: %d | start: %s\n",
+							r.Count, r.Duration.Milliseconds(), r.SumDeltaX, r.SumDeltaY, r.StartTime.Format(time.RFC3339Nano))
+					}
+				}
+				if len(summary.CursorLeaps) > 0 {
+					fmt.Fprintln(out, "cursor_leaps:")
+					for _, l := range summary.CursorLeaps {
+						fmt.Fprintf(out, "  - dist_px: %.1f | duration_ms: %d | velocity_px_s: %.0f | from: [%.0f, %.0f] | to: [%.0f, %.0f] | crosses_display: %t | time: %s\n",
+							l.DistancePx, l.Duration.Milliseconds(), l.VelocityPxPerSec, l.FromX, l.FromY, l.ToX, l.ToY, l.CrossesDisplay, l.Timestamp.Format(time.RFC3339Nano))
+					}
+				}
 				if showTimeline {
 					fmt.Fprintln(out, "timeline:")
 					for _, b := range analyzer.Timeline(events, threshold) {
@@ -372,6 +386,26 @@ func newCursorAnalyzeCommand() *cobra.Command {
 			fmt.Fprintf(out, "\nAnomalies Detected: %d\n", summary.AnomalyCount)
 			for kind, count := range summary.AnomalyBreakdown {
 				fmt.Fprintf(out, "  * %-24s: %d\n", kind, count)
+			}
+
+			if len(summary.SaturationRuns) > 0 {
+				fmt.Fprintln(out, "\nReport Saturation Runs:")
+				for _, r := range summary.SaturationRuns {
+					fmt.Fprintf(out, "  * %d consecutive reports over %s (delta sum: X=%d, Y=%d) at %s\n",
+						r.Count, r.Duration.Round(time.Millisecond), r.SumDeltaX, r.SumDeltaY, r.StartTime.Format("15:04:05.000"))
+				}
+			}
+
+			if len(summary.CursorLeaps) > 0 {
+				fmt.Fprintln(out, "\nCursor Teleport Leaps:")
+				for _, l := range summary.CursorLeaps {
+					displayInfo := ""
+					if l.CrossesDisplay {
+						displayInfo = fmt.Sprintf(" [Display %d -> %d]", l.FromDisplay, l.ToDisplay)
+					}
+					fmt.Fprintf(out, "  * %.0f px in %s (%.0f px/s): (%.0f, %.0f) -> (%.0f, %.0f)%s at %s\n",
+						l.DistancePx, l.Duration.Round(time.Millisecond), l.VelocityPxPerSec, l.FromX, l.FromY, l.ToX, l.ToY, displayInfo, l.Timestamp.Format("15:04:05.000"))
+				}
 			}
 
 			if showTimeline {

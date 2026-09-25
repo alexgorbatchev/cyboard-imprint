@@ -78,10 +78,38 @@ type Anomaly struct {
 	Details     map[string]string `json:"details,omitempty"`
 }
 
+// SaturationRun records a sequence of consecutive reports hitting the report limit.
+type SaturationRun struct {
+	Count     int           `json:"count"`
+	Duration  time.Duration `json:"duration"`
+	SumDeltaX int64         `json:"sum_delta_x"`
+	SumDeltaY int64         `json:"sum_delta_y"`
+	StartTime time.Time     `json:"start_time"`
+	EndTime   time.Time     `json:"end_time"`
+}
+
+// CursorLeap records a rapid, jarring cursor displacement across frames.
+type CursorLeap struct {
+	DistancePx       float64       `json:"distance_px"`
+	Duration         time.Duration `json:"duration"`
+	VelocityPxPerSec float64       `json:"velocity_px_per_sec"`
+	FromX            float64       `json:"from_x"`
+	FromY            float64       `json:"from_y"`
+	ToX              float64       `json:"to_x"`
+	ToY              float64       `json:"to_y"`
+	DeltaX           int64         `json:"delta_x"`
+	DeltaY           int64         `json:"delta_y"`
+	FromDisplay      uint32        `json:"from_display"`
+	ToDisplay        uint32        `json:"to_display"`
+	CrossesDisplay   bool          `json:"crosses_display"`
+	Timestamp        time.Time     `json:"timestamp"`
+}
+
 // Config configures analyzer parameters and thresholds.
 type Config struct {
-	JumpThreshold int64     // delta magnitude (e.g. 50 counts) considered a jump
-	Displays      []Display // known displays for boundary cross detection
+	JumpThreshold         int64     // delta magnitude (e.g. 50 counts) considered a jump
+	LeapVelocityThreshold float64   // cursor velocity (px/sec) considered a teleport leap
+	Displays              []Display // known displays for boundary cross detection
 }
 
 // HistogramBucket counts events within a delta magnitude range.
@@ -112,6 +140,10 @@ type Summary struct {
 	YStats           DeltaStats          `json:"y_stats"`
 	Buckets          []HistogramBucket   `json:"buckets"`
 	Diagnoses        []string            `json:"diagnoses"`
+	SaturationRuns   []SaturationRun     `json:"saturation_runs,omitempty"`
+	MaxSaturationRun *SaturationRun      `json:"max_saturation_run,omitempty"`
+	CursorLeaps      []CursorLeap        `json:"cursor_leaps,omitempty"`
+	MaxCursorLeap    *CursorLeap         `json:"max_cursor_leap,omitempty"`
 }
 
 func (s Summary) String() string {

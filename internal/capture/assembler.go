@@ -74,7 +74,8 @@ func (r hidReport) event(id uint64, clock monoClock) analyzer.Event {
 // until a value with a different timestamp arrives, so X and Y are never paired across
 // reports and no counts are dropped.
 type reportAssembler struct {
-	pending map[uintptr]*hidReport
+	pending     map[uintptr]*hidReport
+	lastEmitted map[string]uint64
 }
 
 // add records one element value. When the value starts a new report, the previous report
@@ -88,8 +89,19 @@ func (a *reportAssembler) add(dev hidDevice, usage hidUsage, val int64, tsNanos 
 	var done bool
 	cur := a.pending[dev.handle]
 	if cur != nil && cur.tsNanos != tsNanos {
-		completed, done = *cur, cur.hasMotion()
-		cur = nil
+		if a.lastEmitted != nil && a.lastEmitted[cur.dev.name] == cur.tsNanos {
+			// Skip duplicate reports dispatched by multiple HID collections on the same device.
+			cur = nil
+		} else {
+			completed, done = *cur, cur.hasMotion()
+			if done {
+				if a.lastEmitted == nil {
+					a.lastEmitted = make(map[string]uint64)
+				}
+				a.lastEmitted[cur.dev.name] = cur.tsNanos
+			}
+			cur = nil
+		}
 	}
 	if cur == nil {
 		cur = &hidReport{dev: dev, tsNanos: tsNanos}
@@ -116,7 +128,13 @@ func (a *reportAssembler) flush() []hidReport {
 	var out []hidReport
 	for handle, r := range a.pending {
 		if r.hasMotion() {
-			out = append(out, *r)
+			if a.lastEmitted == nil || a.lastEmitted[r.dev.name] != r.tsNanos {
+				out = append(out, *r)
+				if a.lastEmitted == nil {
+					a.lastEmitted = make(map[string]uint64)
+				}
+				a.lastEmitted[r.dev.name] = r.tsNanos
+			}
 		}
 		delete(a.pending, handle)
 	}
