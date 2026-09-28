@@ -177,7 +177,7 @@ The `./firmware` directory contains our fork of Cyboard's Vial-QMK firmware ([`a
 6. **Names the Trackball Keycodes in Vial**:
    - The 5-key bottom row layouts show the trackball keys as `L_DPI_INC`, `L_DPI_DEC`, `L_DragScroll_TOG`, and so on, instead of `User 0`–`User 15`.
 7. **Enters the Bootloader Without a Reset Button**:
-   - Holding the top-left key (`\`` / backtick) on the left half or top-right key (`-` / minus) on the right half while plugging in USB turns that half's LEDs solid blue and mounts the `RPI-RP2` drive, and keeps the Vial keymap and trackball settings (stock Bootmagic wipes EEPROM). Available on the `number_row` + `5key_bottom_row` layout.
+   - Holding the physical top-leftmost key on the left half or physical top-rightmost key on the right half while plugging in USB turns that half's LEDs solid blue and mounts the `RPI-RP2` drive, and keeps the Vial keymap and trackball settings (stock Bootmagic wipes EEPROM). Available on the `number_row` + `5key_bottom_row` layout.
 8. **Identifies Itself Over USB**:
    - The keyboard reports the product name **`Imprint (Patched)`** and firmware version `0.2.6`, which `mouse-issues device list` shows.
 9. **Keeps Motion Within the Report Descriptor**:
