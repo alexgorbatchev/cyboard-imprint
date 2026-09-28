@@ -1,6 +1,6 @@
 ---
 created_on: 2026-09-23 13:04
-last_modified: 2026-09-24 17:25
+last_modified: 2026-09-28 14:45
 status: current
 ---
 
@@ -40,7 +40,7 @@ Diagnostics, tooling, and firmware patches for Cyboard Imprint split mechanical 
 
 ## Problem & Hardware Context
 
-The user is experiencing severe mouse cursor teleportation across multiple monitors (main 2560x1440 and secondary 1440x900) while moving softly on a keyboard-integrated trackball.
+The user was experiencing severe mouse cursor teleportation across multiple monitors (main 2560x1440 and secondary 1440x900) while moving softly on a keyboard-integrated trackball. This has been resolved in firmware 0.2.6 via PMW3360 SROM v0x04 upload and DPI clamping.
 
 - **Hardware**: Cyboard Imprint split mechanical keyboard (`VID: 0x4359`, `PID: 0x0000`, Serial: `vial:f64c2b3c`, USB).
 - **Architecture**: Dual PixArt PMW3360 optical sensors over SPI connected to Raspberry Pi RP2040 microcontrollers.
@@ -51,6 +51,7 @@ The user is experiencing severe mouse cursor teleportation across multiple monit
 - Recorded captures (`trackball.ndjson`, `trackball_post_flash.ndjson`, `live_test.ndjson`) show no true teleports: cursor displacement always matches the CG delta within about 2 points. Jumps come from large raw HID deltas (up to the 8-bit report limit of `-127`) amplified by macOS pointer acceleration, which points at DPI.
 - Those captures predate hardware timestamps, per-report HID grouping, and session headers, so their burst counts and intervals are artifacts; only new recordings carry device versions and display layouts.
 - Post-patch captures on 0.2.3 (`post_023_2.ndjson` and `post_023_step0.ndjson`) revealed optical "sensor spinout": bursts of 500+ raw counts over 30–35 ms strictly in the negative X direction (left) during gentle thumb wiggling. At 100 DPI, 500 counts in 35 ms equals 5.5 inches of trackball surface travel (more than a full 360° rotation of a 34mm ball, or ~2,000 RPM), which is physically impossible for thumb motion. This was traced to the unpatched factory ROM in the PMW3360 optical sensor, which lacks the official PixArt SROM firmware patch that fixes DSP cross-correlation overflow.
+- Resolved in firmware 0.2.6: uploading PixArt PMW3360 SROM v0x04 on boot verified on real hardware to completely eliminate sensor spinout and cursor jumps.
 - The keyboard reported `Imprint` version `0.2.0` (unpatched firmware) on 2026-09-24; confirm the flashed build with `mouse-issues device list` before trusting a capture.
 
 ## Firmware Fixes
