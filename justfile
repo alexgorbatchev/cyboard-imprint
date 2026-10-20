@@ -6,11 +6,11 @@ default:
 
 # Run CLI in human mode (default)
 run *args:
-    (cd cli && go run ./cmd/mouse-issues {{args}})
+    (cd cli && go run ./cmd/mouse-issues {{ args }})
 
 # Run CLI in agent-facing mode
 run-ai *args:
-    (cd cli && AGENT=1 go run ./cmd/mouse-issues {{args}})
+    (cd cli && AGENT=1 go run ./cmd/mouse-issues {{ args }})
 
 # Run test suite
 test:
@@ -47,31 +47,31 @@ inspect: build
 
 # Run a live guided diagnostic session on Imprint trackball (default: 15s)
 diagnose duration="15s" threshold="40": build
-    ./bin/mouse-issues cursor diagnose --device Imprint --duration {{duration}} --threshold {{threshold}}
+    ./bin/mouse-issues cursor diagnose --device Imprint --duration {{ duration }} --threshold {{ threshold }}
 
 # Stream live cursor movement and highlight anomalies
 monitor threshold="40": build
-    ./bin/mouse-issues cursor monitor --device Imprint --threshold {{threshold}}
+    ./bin/mouse-issues cursor monitor --device Imprint --threshold {{ threshold }}
 
 # Record movement to an NDJSON file (default: 15s)
 record duration="15s" file="trackball.ndjson" threshold="40": build
-    ./bin/mouse-issues cursor record -o {{file}} --device Imprint --duration {{duration}} --threshold {{threshold}}
+    ./bin/mouse-issues cursor record -o {{ file }} --device Imprint --duration {{ duration }} --threshold {{ threshold }}
 
 # Analyze a recorded session file
 analyze file="trackball.ndjson" threshold="40": build
-    ./bin/mouse-issues cursor analyze {{file}} --threshold {{threshold}}
+    ./bin/mouse-issues cursor analyze {{ file }} --threshold {{ threshold }}
 
 # Display second-by-second timeline of event counts and peak deltas
 timeline file="trackball.ndjson" threshold="30": build
-    ./bin/mouse-issues cursor timeline {{file}} --threshold {{threshold}}
+    ./bin/mouse-issues cursor timeline {{ file }} --threshold {{ threshold }}
 
 # Display directional spike distribution (Left, Right, Up, Down)
 spikes file="trackball.ndjson" threshold="30": build
-    ./bin/mouse-issues cursor spikes {{file}} --threshold {{threshold}}
+    ./bin/mouse-issues cursor spikes {{ file }} --threshold {{ threshold }}
 
 # Inspect a UF2 firmware binary header and architecture
 inspect-uf2 file="firmware/bin/cyboard-imprint-uf2/cyboard_imprint_imprint_number_row_5key_bottom_row_vial.uf2": build
-    ./bin/mouse-issues firmware inspect {{file}}
+    ./bin/mouse-issues firmware inspect {{ file }}
 
 # Clone the patched Vial-QMK firmware fork and initialize required build submodules
 firmware-bootstrap:
@@ -99,7 +99,7 @@ firmware-build variant="imprint_number_row_5key_bottom_row": build
     set -euo pipefail
     fail() { echo "[ERROR] $*" >&2; exit 1; }
     image="ghcr.io/qmk/qmk_cli@sha256:2dc05fc9f32efebd6b05c2b8676ee548358bc7e151e9dbf4dac6b6eed4513b07"
-    name="cyboard_imprint_{{variant}}_vial.uf2"
+    name="cyboard_imprint_{{ variant }}_vial.uf2"
     outdir="firmware/bin/cyboard-imprint-uf2"
 
     [[ -d firmware ]] || fail "firmware/ is missing; run 'just firmware-bootstrap' first"
@@ -112,9 +112,9 @@ firmware-build variant="imprint_number_row_5key_bottom_row": build
     rm -f "firmware/$name"
     mkdir -p .tmp
     buildlog=".tmp/firmware-build.log"
-    echo "[INFO] Building {{variant}} at firmware ${commit:0:8} (output: $buildlog)"
+    echo "[INFO] Building {{ variant }} at firmware ${commit:0:8} (output: $buildlog)"
     if ! docker run --rm -v "$PWD/firmware":/qmk_firmware -w /qmk_firmware "$image" \
-        bash -c "git config --global --add safe.directory /qmk_firmware && make cyboard/imprint/{{variant}}:vial" >"$buildlog" 2>&1; then
+        bash -c "git config --global --add safe.directory /qmk_firmware && make cyboard/imprint/{{ variant }}:vial" >"$buildlog" 2>&1; then
         tail -n 40 "$buildlog" >&2
         fail "firmware build failed; full output in $buildlog"
     fi
@@ -124,7 +124,7 @@ firmware-build variant="imprint_number_row_5key_bottom_row": build
     cp "firmware/$name" "$outdir/$name"
     uf2="$(AGENT=1 ./bin/mouse-issues firmware inspect "$outdir/$name")"
     field() { printf '%s\n' "$uf2" | awk -v key="$1: " 'index($0, key) == 1 { print substr($0, length(key) + 1) }' | head -n 1; }
-    COMMIT="$commit" VARIANT="{{variant}}" VERSION="$(field usb_version)" \
+    COMMIT="$commit" VARIANT="{{ variant }}" VERSION="$(field usb_version)" \
     SHA256="$(shasum -a 256 "$outdir/$name" | cut -d' ' -f1)" OUT="$outdir/$name.json" \
         bun -e 'await Bun.write(process.env.OUT, JSON.stringify({commit: process.env.COMMIT, variant: process.env.VARIANT, version: process.env.VERSION, sha256: process.env.SHA256, built_at: new Date().toISOString()}, null, 2) + "\n")'
     echo "[OK] $outdir/$name: version $(field usb_version), firmware ${commit:0:8}"
@@ -137,10 +137,10 @@ flash half file="firmware/bin/cyboard-imprint-uf2/cyboard_imprint_imprint_number
     set -euo pipefail
     volume="/Volumes/RPI-RP2"
     log="docs/internal/flash-log.md"
-    half="{{half}}"
-    file="{{file}}"
-    variant="{{variant}}"
-    product="{{product}}"
+    half="{{ half }}"
+    file="{{ file }}"
+    variant="{{ variant }}"
+    product="{{ product }}"
     fail() { echo "[ERROR] $*" >&2; exit 1; }
 
     # Wait up to $1 seconds for condition $2 to hold.
@@ -189,7 +189,7 @@ flash half file="firmware/bin/cyboard-imprint-uf2/cyboard_imprint_imprint_number
         echo "       - unplug its USB cable"
         echo "       - hold its $key key and plug the USB cable back in; its LEDs turn solid blue"
         echo "       Firmware older than 0.2.3 has no flash key: double-tap the reset button instead."
-        wait_for {{timeout}} '[[ -d "$volume" ]]' || fail "$volume did not appear within {{timeout}}s"
+        wait_for {{ timeout }} '[[ -d "$volume" ]]' || fail "$volume did not appear within {{ timeout }}s"
     fi
     [[ -f "$volume/INFO_UF2.TXT" ]] || fail "$volume is not an RP2040 bootloader drive (no INFO_UF2.TXT)"
 
@@ -220,3 +220,7 @@ flash half file="firmware/bin/cyboard-imprint-uf2/cyboard_imprint_imprint_number
 # Clean up build binaries and temporary files
 clean:
     rm -rf bin coverage.out .tmp dist trackball.ndjson *.ndjson
+
+# Download project dependencies for local development
+setup:
+    cd cli && go mod download
